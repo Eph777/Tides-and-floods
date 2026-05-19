@@ -150,7 +150,8 @@ local function ensure_content_ids()
 	end
 end
 
--- Update one chunk: compute Gerstner heights + flood level and write water/air via VoxelManip
+-- Update one chunk: compute Gerstner wave surface for ALL columns uniformly
+-- Water naturally spreads wherever the wave surface exceeds the terrain.
 local function update_chunk(chunk_data, time, current_flood_rise)
 	ensure_content_ids()
 
@@ -166,7 +167,7 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 
 	-- Determine vertical bounds for the VoxelManip
 	local y_min = sea - 30
-	local y_max = math_floor(effective_sea + amp) + 4
+	local y_max = math_floor(effective_sea + amp) + 6
 
 	local p1 = {x = min_x, y = y_min, z = min_z}
 	local p2 = {x = min_x + CHUNK - 1, y = y_max, z = min_z + CHUNK - 1}
@@ -188,27 +189,45 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 				local wz = min_z + lz
 				local floor_y = col.floor_y
 
-				if col.is_ocean then
-					-- Ocean column: Gerstner waves on top of the rising sea level
-					local top_y = OceanWaves.get_surface(
-						wx, wz, time, effective_sea, iters, amp
-					)
+				-- Compute the Gerstner wave surface at this position
+				-- This is the SAME for ocean and land columns — no invisible walls!
+				local wave_surface_y = OceanWaves.get_surface(
+					wx, wz, time, effective_sea, iters, amp
+				)
 
-					if top_y < floor_y + 1 then
-						top_y = floor_y
+				-- Only place water if the wave surface is above the terrain
+				if wave_surface_y > floor_y then
+					local top_y = math_min(wave_surface_y, y_max)
+
+					-- Fill water from terrain+1 up to the wave surface
+					for y = floor_y + 1, top_y do
+						local vi = va:index(wx, y, wz)
+						local existing = data[vi]
+						-- Place water in air or existing water slots only
+						if existing == c_air or existing == c_water then
+							if existing ~= c_water then
+								data[vi] = c_water
+								modified = true
+							end
+						end
+						-- If we hit a solid block (tree trunk, wall), skip it
+						-- Water flows around it naturally
 					end
 
-					-- Write water from seafloor+1 up to top_y
-					for y = floor_y + 1, math_min(top_y, y_max) do
+					-- Clear water above the wave surface (wave receding)
+					for y = top_y + 1, y_max do
 						local vi = va:index(wx, y, wz)
-						if data[vi] ~= c_water then
-							data[vi] = c_water
+						local existing = data[vi]
+						if existing == c_water then
+							data[vi] = c_air
 							modified = true
+						elseif existing ~= c_air then
+							break  -- hit solid, stop
 						end
 					end
-
-					-- Clear above
-					for y = math_max(top_y + 1, floor_y + 1), y_max do
+				else
+					-- Wave surface is below terrain: clear any leftover water above terrain
+					for y = floor_y + 1, math_min(floor_y + 6, y_max) do
 						local vi = va:index(wx, y, wz)
 						local existing = data[vi]
 						if existing == c_water then
@@ -216,22 +235,6 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 							modified = true
 						elseif existing ~= c_air then
 							break
-						end
-					end
-				else
-					-- Land column: flood it if the rising sea has reached this elevation
-					local flood_top = math_floor(effective_sea)
-
-					if flood_top > floor_y then
-						-- Fill water from terrain surface+1 up to flood level
-						for y = floor_y + 1, math_min(flood_top, y_max) do
-							local vi = va:index(wx, y, wz)
-							local existing = data[vi]
-							-- Only replace air (don't destroy buildings/trees)
-							if existing == c_air then
-								data[vi] = c_water
-								modified = true
-							end
 						end
 					end
 				end
