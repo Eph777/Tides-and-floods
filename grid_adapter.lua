@@ -224,9 +224,11 @@ minetest.register_globalstep(function(dtime)
 	global_wave_time = global_wave_time + dtime
 	local wave_fx, wave_fz = 0, 0
 	if settings.enable_waves then
-		-- Oscillating force primarily in the X direction
-		wave_fx = math.sin(global_wave_time * 2.0) * settings.wave_force
-		wave_fz = math.cos(global_wave_time * 1.5) * settings.wave_force * 0.5
+		-- Strong, pulsing directional storm wind to create crashing waves
+		-- A constant base push + large periodic pulses
+		local pulse = math.max(0, math.sin(global_wave_time * 1.5)) * 4.0
+		wave_fx = (1.0 + pulse) * settings.wave_force
+		wave_fz = (math.cos(global_wave_time * 0.5) * settings.wave_force)
 	end
 	
 	realistic_fluids.active_cells = 0

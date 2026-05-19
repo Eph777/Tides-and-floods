@@ -15,7 +15,7 @@ realistic_fluids.settings = {
 	enable_waves = minetest.settings:get_bool("realistic_fluids_enable_waves", true),
 	
 	-- Wave force magnitude.
-	wave_force = tonumber(minetest.settings:get("realistic_fluids_wave_force")) or 0.1,
+	wave_force = tonumber(minetest.settings:get("realistic_fluids_wave_force")) or 1.5,
 
 	-- Disable the entire LBM system and fallback to default water.
 	disable_lbm = minetest.settings:get_bool("realistic_fluids_disable_lbm", false),
