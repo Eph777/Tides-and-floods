@@ -141,11 +141,13 @@ minetest.register_lbm({
 
 -- Content IDs (cached after first use)
 local c_water = nil
+local c_water_flowing = nil
 local c_air = nil
 
 local function ensure_content_ids()
 	if not c_water then
 		c_water = minetest.get_content_id("default:water_source")
+		c_water_flowing = minetest.get_content_id("default:water_flowing")
 		c_air = minetest.get_content_id("air")
 	end
 end
@@ -175,6 +177,7 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 	local vm = minetest.get_voxel_manip()
 	local emin, emax = vm:read_from_map(p1, p2)
 	local data = vm:get_data()
+	local param2_data = vm:get_param2_data()
 	local va = VoxelArea:new{MinEdge = emin, MaxEdge = emax}
 
 	local modified = false
@@ -190,8 +193,7 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 				local floor_y = col.floor_y
 
 				-- Compute the Gerstner wave surface at this position
-				-- This is the SAME for ocean and land columns — no invisible walls!
-				local wave_surface_y = OceanWaves.get_surface(
+				local wave_surface_y, wave_remainder = OceanWaves.get_surface(
 					wx, wz, time, effective_sea, iters, amp
 				)
 
@@ -203,22 +205,35 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 					for y = floor_y + 1, top_y do
 						local vi = va:index(wx, y, wz)
 						local existing = data[vi]
-						-- Place water in air or existing water slots only
-						if existing == c_air or existing == c_water then
-							if existing ~= c_water then
-								data[vi] = c_water
-								modified = true
+
+						if existing == c_air or existing == c_water or existing == c_water_flowing then
+							if y == top_y then
+								-- TOPMOST block: use water_flowing with fractional level
+								-- param2 level: 0 = full, 7 = nearly empty
+								-- wave_remainder is 0.0-1.0 (how full this top block is)
+								local level = math_floor((1.0 - wave_remainder) * 7)
+								level = math_min(7, math_max(0, level))
+
+								if existing ~= c_water_flowing or param2_data[vi] ~= level then
+									data[vi] = c_water_flowing
+									param2_data[vi] = level
+									modified = true
+								end
+							else
+								-- DEEP blocks: use water_source (full block)
+								if existing ~= c_water then
+									data[vi] = c_water
+									modified = true
+								end
 							end
 						end
-						-- If we hit a solid block (tree trunk, wall), skip it
-						-- Water flows around it naturally
 					end
 
 					-- Clear water above the wave surface (wave receding)
 					for y = top_y + 1, y_max do
 						local vi = va:index(wx, y, wz)
 						local existing = data[vi]
-						if existing == c_water then
+						if existing == c_water or existing == c_water_flowing then
 							data[vi] = c_air
 							modified = true
 						elseif existing ~= c_air then
@@ -230,7 +245,7 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 					for y = floor_y + 1, math_min(floor_y + 6, y_max) do
 						local vi = va:index(wx, y, wz)
 						local existing = data[vi]
-						if existing == c_water then
+						if existing == c_water or existing == c_water_flowing then
 							data[vi] = c_air
 							modified = true
 						elseif existing ~= c_air then
@@ -244,8 +259,9 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 
 	if modified then
 		vm:set_data(data)
-		vm:update_liquids()     -- Tell the engine to process liquid flow for new water blocks
-		vm:write_to_map(true)   -- true = recalculate light + trigger liquid spreading
+		vm:set_param2_data(param2_data)
+		vm:update_liquids()
+		vm:write_to_map(true)
 	end
 end
 
