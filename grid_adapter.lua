@@ -90,7 +90,10 @@ end
 function FluidGrid:sync(wave_fx, wave_fz)
 	if not self.active then return end
 	
-	local nodes_to_set = {}
+	local air_pos = {}
+	local source_pos = {}
+	local flowing_pos = {}
+	for i = 1, 7 do flowing_pos[i] = {} end
 	local min_x = self.block_pos.x
 	local min_z = self.block_pos.z
 	
@@ -115,13 +118,13 @@ function FluidGrid:sync(wave_fx, wave_fz)
 					-- Clear air blocks above the wave
 					for y = top_y + 1, top_y + 3 do
 						local pos = {x = min_x + x, y = y, z = min_z + z}
-						table.insert(nodes_to_set, {pos = pos, node = {name = "air"}})
+						table.insert(air_pos, {x = min_x + x, y = y, z = min_z + z})
 					end
 					
 					-- Set water blocks
 					for y = b + 1, top_y do
 						local pos = {x = min_x + x, y = y, z = min_z + z}
-						table.insert(nodes_to_set, {pos = pos, node = {name = "default:water_source"}})
+						table.insert(source_pos, {x = min_x + x, y = y, z = min_z + z})
 					end
 					
 					-- Set surface flowing block
@@ -129,13 +132,13 @@ function FluidGrid:sync(wave_fx, wave_fz)
 						local level = math.floor(remainder * 8)
 						level = math.min(7, math.max(1, level))
 						local pos = {x = min_x + x, y = top_y + 1, z = min_z + z}
-						table.insert(nodes_to_set, {pos = pos, node = {name = "default:water_flowing", param2 = level}})
+						table.insert(flowing_pos[level], {x = min_x + x, y = top_y + 1, z = min_z + z})
 					end
 				else
 					-- Clean up if it was wet
 					for y = b + 1, b + 3 do
 						local pos = {x = min_x + x, y = y, z = min_z + z}
-						table.insert(nodes_to_set, {pos = pos, node = {name = "air"}})
+						table.insert(air_pos, {x = min_x + x, y = y, z = min_z + z})
 					end
 				end
 			end
@@ -146,8 +149,12 @@ function FluidGrid:sync(wave_fx, wave_fz)
 		end
 	end
 	
-	if #nodes_to_set > 0 then
-		minetest.bulk_set_node(nodes_to_set)
+	for _, p in ipairs(air_pos) do minetest.swap_node(p, {name="air"}) end
+	for _, p in ipairs(source_pos) do minetest.swap_node(p, {name="default:water_source"}) end
+	for lvl = 1, 7 do
+		for _, p in ipairs(flowing_pos[lvl]) do
+			minetest.swap_node(p, {name="realistic_fluids:water_flowing_" .. lvl})
+		end
 	end
 end
 
