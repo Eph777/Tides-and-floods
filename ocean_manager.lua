@@ -31,9 +31,39 @@ local function get_chunk_coords(pos)
 	       math_floor(pos.z / CHUNK) * CHUNK
 end
 
+-- Cache: is a given content ID "permeable" to water?
+-- Permeable = water can flow through/replace it (leaves, grass, flowers, saplings)
+-- Tree trunks are walkable but water should flow PAST them (not replace them)
+local permeability_cache = {}  -- cid -> "solid_ground" | "permeable" | "tree_trunk" | nil
+
+local function get_permeability(cid)
+	if permeability_cache[cid] ~= nil then
+		return permeability_cache[cid]
+	end
+	local name = minetest.get_name_from_content_id(cid)
+	local def = minetest.registered_nodes[name]
+	if not def then
+		permeability_cache[cid] = "solid_ground"
+		return "solid_ground"
+	end
+	local groups = def.groups or {}
+	if groups.tree then
+		-- Tree trunks: water flows past but doesn't replace
+		permeability_cache[cid] = "tree_trunk"
+	elseif groups.leaves or groups.flora or groups.flower or groups.sapling
+	       or groups.snappy or groups.attached_node
+	       or not def.walkable then
+		-- Non-walkable vegetation: water replaces it
+		permeability_cache[cid] = "permeable"
+	else
+		-- Solid ground (dirt, stone, sand, etc.)
+		permeability_cache[cid] = "solid_ground"
+	end
+	return permeability_cache[cid]
+end
+
 -- Scan a chunk column with VoxelManip to find the seafloor for each (x,z).
--- Also detects coastal land columns that could be flooded.
--- Returns a table[local_index] = {floor_y=N, is_ocean=bool, land_y=N or nil}, or nil if nothing interesting.
+-- Looks THROUGH trees and vegetation to find the actual walkable ground.
 local function scan_chunk_terrain(min_x, min_z)
 	local sea = settings.sea_level
 	local flood_max = settings.flood_max or 8
@@ -63,22 +93,34 @@ local function scan_chunk_terrain(min_x, min_z)
 			local found_water = false
 			local land_surface_y = nil
 
-			-- Scan top-down
+			-- Scan top-down, looking THROUGH trees and vegetation
 			for y = y_max, y_min, -1 do
 				local vi = va:index(min_x + lx, y, min_z + lz)
 				local cid = data[vi]
 
 				if cid == c_water_source or cid == c_water_flowing then
 					found_water = true
-				elseif found_water and cid ~= c_air and cid ~= c_ignore then
-					floor_y = y
-					break
-				elseif not found_water and cid ~= c_air and cid ~= c_ignore then
-					-- Land column: record the surface height if it's near sea level
-					if y <= sea + flood_max + 2 then
-						land_surface_y = y
+				elseif cid == c_air or cid == c_ignore then
+					-- Keep scanning
+				elseif found_water then
+					-- Under water: check if this is real ground or vegetation
+					local perm = get_permeability(cid)
+					if perm == "solid_ground" then
+						floor_y = y
+						break
 					end
-					break
+					-- tree_trunk or permeable: keep scanning for real floor
+				else
+					-- No water above: check what this block is
+					local perm = get_permeability(cid)
+					if perm == "solid_ground" then
+						-- Actual ground surface
+						if y <= sea + flood_max + 2 then
+							land_surface_y = y
+						end
+						break
+					end
+					-- tree_trunk or permeable vegetation: skip, keep scanning
 				end
 			end
 
@@ -89,7 +131,6 @@ local function scan_chunk_terrain(min_x, min_z)
 					is_ocean = true,
 				}
 			elseif land_surface_y and land_surface_y <= sea + flood_max + 2 then
-				-- Coastal land that could be flooded
 				has_anything = true
 				columns[idx] = {
 					floor_y = land_surface_y,
@@ -207,25 +248,34 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 						local existing = data[vi]
 
 						if existing == c_air or existing == c_water or existing == c_water_flowing then
+							-- Open space: place water
 							if y == top_y then
-								-- TOPMOST block: use water_flowing with fractional level
-								-- param2 level: 0 = full, 7 = nearly empty
-								-- wave_remainder is 0.0-1.0 (how full this top block is)
 								local level = math_floor((1.0 - wave_remainder) * 7)
 								level = math_min(7, math_max(0, level))
-
 								if existing ~= c_water_flowing or param2_data[vi] ~= level then
 									data[vi] = c_water_flowing
 									param2_data[vi] = level
 									modified = true
 								end
 							else
-								-- DEEP blocks: use water_source (full block)
 								if existing ~= c_water then
 									data[vi] = c_water
 									modified = true
 								end
 							end
+						else
+							-- Non-air block: check permeability
+							local perm = get_permeability(existing)
+							if perm == "permeable" then
+								-- Vegetation: replace with water (it gets submerged)
+								data[vi] = c_water
+								modified = true
+							elseif perm == "tree_trunk" then
+								-- Tree trunk: skip it, water flows AROUND it
+								-- Don't break — keep filling above
+							end
+							-- solid_ground: also skip (don't break, in case
+							-- there's air above from a gap in terrain)
 						end
 					end
 
