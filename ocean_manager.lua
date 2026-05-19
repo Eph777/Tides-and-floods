@@ -244,7 +244,8 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 
 	if modified then
 		vm:set_data(data)
-		vm:write_to_map(false)
+		vm:update_liquids()     -- Tell the engine to process liquid flow for new water blocks
+		vm:write_to_map(true)   -- true = recalculate light + trigger liquid spreading
 	end
 end
 
