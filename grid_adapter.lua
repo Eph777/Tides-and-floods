@@ -69,9 +69,15 @@ function FluidGrid:init_from_world()
 					if water_top == -999 then water_top = y end
 					local level = math.max(1, param2_data[vi] % 8) / 8.0
 					total_water = total_water + level
-				elseif cid ~= c_air and cid ~= c_ignore then
-					-- Solid ground
-					if terrain_top == -999 then terrain_top = y end
+				elseif cid ~= c_air and cid ~= c_ignore and terrain_top == -999 then
+					-- Ignore blocks above water, or if no water, ignore high terrain (bridges/canopies)
+					if (water_top ~= -999 and y < water_top) or (water_top == -999 and y <= 4) then
+						local name = minetest.get_name_from_content_id(cid)
+						local def = minetest.registered_nodes[name]
+						if def and def.walkable and not (def.groups and (def.groups.leaves or def.groups.tree)) then
+							terrain_top = y
+						end
+					end
 				end
 			end
 			
@@ -87,7 +93,7 @@ function FluidGrid:init_from_world()
 	end
 end
 
-function FluidGrid:sync(wave_fx, wave_fz)
+function FluidGrid:sync(wave_h)
 	if not self.active then return end
 	
 	local air_pos = {}
@@ -98,7 +104,7 @@ function FluidGrid:sync(wave_fx, wave_fz)
 	local min_z = self.block_pos.z
 	
 	if realistic_fluids.active_cells + (BLOCK_SIZE * BLOCK_SIZE) <= settings.tick_budget then
-		self.sim:step(wave_fx, wave_fz)
+		self.sim:step(wave_h)
 		realistic_fluids.active_cells = realistic_fluids.active_cells + (BLOCK_SIZE * BLOCK_SIZE)
 		
 		local has_water = false
@@ -158,28 +164,38 @@ function FluidGrid:sync(wave_fx, wave_fz)
 	end
 end
 
--- Global Manager
+-- Global Manager with Round-Robin Update
 local global_wave_time = 0
+local last_hash = nil
+
 minetest.register_globalstep(function(dtime)
 	if settings.disable_lbm then return end
 	
 	global_wave_time = global_wave_time + dtime
-	local wave_fx, wave_fz = 0, 0
+	local wave_h = nil
 	if settings.enable_waves then
-		-- Progressive, realistic storm wind (gentle base push + moderate pulses)
-		-- Capped to prevent absurd height pileups across the chunk.
-		local pulse = math.max(0, math.sin(global_wave_time * 1.0)) * 0.5
-		-- Typical force is ~0.1 to 0.5. At 0.1, max height diff is ~1.6 blocks per chunk.
-		wave_fx = (0.2 + pulse) * settings.wave_force
-		wave_fz = (math.cos(global_wave_time * 0.5) * settings.wave_force * 0.2)
+		-- Boundary wave generator: injects a 1.5-block high rolling wave
+		wave_h = math.max(0, math.sin(global_wave_time * 1.5)) * 1.5 * settings.wave_force
 	end
 	
 	realistic_fluids.active_cells = 0
-	for _, grid in pairs(realistic_fluids.grids) do
-		grid:sync(wave_fx, wave_fz)
+	
+	local start_hash = last_hash
+	local hash, grid = next(realistic_fluids.grids, last_hash)
+	if not hash then hash, grid = next(realistic_fluids.grids) end
+	
+	while hash do
+		if grid.active then
+			grid:sync(wave_h)
+		end
+		
+		last_hash = hash
 		if realistic_fluids.active_cells >= settings.tick_budget then
 			break
 		end
+		
+		hash, grid = next(realistic_fluids.grids, hash)
+		if hash == start_hash then break end
 	end
 end)
 

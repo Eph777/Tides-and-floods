@@ -6,7 +6,7 @@ realistic_fluids.settings = {
 	lbm_tau = tonumber(minetest.settings:get("realistic_fluids_lbm_tau")) or 0.6,
 	
 	-- Max number of LBM cells to update per tick to stay within 5ms budget.
-	tick_budget = tonumber(minetest.settings:get("realistic_fluids_tick_budget")) or 4096,
+	tick_budget = tonumber(minetest.settings:get("realistic_fluids_tick_budget")) or 65536,
 	
 	-- Enable shore erosion.
 	enable_erosion = minetest.settings:get_bool("realistic_fluids_enable_erosion", false),

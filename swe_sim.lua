@@ -84,7 +84,7 @@ local dx = {1, -1, 0, 0}
 local dz = {0, 0, 1, -1}
 local opp = {2, 1, 4, 3}
 
-function SWESim:step(force_x, force_z)
+function SWESim:step(wave_h)
 	local w = self.width
 	local h = self.height
 	local dt = self.dt
@@ -116,14 +116,6 @@ function SWESim:step(force_x, force_z)
 					
 					-- Head difference
 					local dH = H - H_neighbor
-					
-					-- Apply external forces (wind/storm)
-					if force_x and force_z then
-						if d == 1 then dH = dH + force_x end
-						if d == 2 then dH = dH - force_x end
-						if d == 3 then dH = dH + force_z end
-						if d == 4 then dH = dH - force_z end
-					end
 					
 					-- Accelerate flux
 					local new_f = self.f[base+d] + dt * g * dH
@@ -181,6 +173,13 @@ function SWESim:step(force_x, force_z)
 			
 			self.h[idx] = self.h[idx] + dt * net_volume
 			if self.h[idx] < 0 then self.h[idx] = 0 end
+			
+			-- Boundary Wave Injection
+			if wave_h and x == 0 then
+				if self.h[idx] < wave_h then
+					self.h[idx] = wave_h
+				end
+			end
 		end
 	end
 end
