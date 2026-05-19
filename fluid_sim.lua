@@ -38,6 +38,10 @@ function FluidSim.new(width, height, tau)
 	self.f = {}
 	self.f_next = {}
 	self.solid = {}
+	
+	-- Global force components (used for waves/wind)
+	self.force_x = 0.0
+	self.force_y = 0.0
 
 	for i = 1, num_cells * NUM_DIRS do
 		self.f[i] = 0.0
@@ -159,6 +163,10 @@ function FluidSim:step()
 					ux = 0.0
 					uy = 0.0
 				end
+				
+				-- Apply global force (wind/waves)
+				ux = ux + self.force_x
+				uy = uy + self.force_y
 				
 				local u_sq = ux*ux + uy*uy
 				

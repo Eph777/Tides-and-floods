@@ -81,7 +81,7 @@ function FluidGrid:init_from_world()
 end
 
 -- Synchronize LBM state with the Luanti world
-function FluidGrid:sync()
+function FluidGrid:sync(wave_fx, wave_fz)
 	if not self.active then return end
 	
 	local nodes_to_set = {}
@@ -138,6 +138,10 @@ function FluidGrid:sync()
 		if sim then
 			active_layers = active_layers + 1
 			if realistic_fluids.active_cells + (BLOCK_SIZE * BLOCK_SIZE) <= settings.tick_budget then
+				if wave_fx and wave_fz then
+					sim.force_x = wave_fx
+					sim.force_y = wave_fz
+				end
 				sim:step()
 				realistic_fluids.active_cells = realistic_fluids.active_cells + (BLOCK_SIZE * BLOCK_SIZE)
 				
@@ -213,12 +217,21 @@ function FluidGrid:fetch_solids(y)
 end
 
 -- Global Manager
+local global_wave_time = 0
 minetest.register_globalstep(function(dtime)
 	if settings.disable_lbm then return end
 	
+	global_wave_time = global_wave_time + dtime
+	local wave_fx, wave_fz = 0, 0
+	if settings.enable_waves then
+		-- Oscillating force primarily in the X direction
+		wave_fx = math.sin(global_wave_time * 2.0) * settings.wave_force
+		wave_fz = math.cos(global_wave_time * 1.5) * settings.wave_force * 0.5
+	end
+	
 	realistic_fluids.active_cells = 0
 	for _, grid in pairs(realistic_fluids.grids) do
-		grid:sync()
+		grid:sync(wave_fx, wave_fz)
 		if realistic_fluids.active_cells >= settings.tick_budget then
 			break -- Yield tick budget to engine
 		end
