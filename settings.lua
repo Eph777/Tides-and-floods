@@ -40,6 +40,12 @@ realistic_fluids.settings = {
 
 		-- Maximum flood height above base sea level (blocks)
 		flood_max = tonumber(minetest.settings:get("realistic_fluids_flood_max")) or 8,
+
+		-- Water lateral spreading speed (0 = fastest, 7 = slowest, default water is 1)
+		water_viscosity = tonumber(minetest.settings:get("realistic_fluids_water_viscosity")) or 0,
+
+		-- How far water flows from a source block (1-8, default is 8)
+		water_range = tonumber(minetest.settings:get("realistic_fluids_water_range")) or 8,
 	},
 
 	-- ========== Building Debris ==========

@@ -19,6 +19,34 @@ local math_max = math.max
 local flood_rise = 0
 
 -- ============================================================
+-- Override water node properties for faster lateral spreading
+-- ============================================================
+minetest.register_on_mods_loaded(function()
+	local viscosity = settings.water_viscosity or 0
+	local range = settings.water_range or 8
+
+	-- Override water_source
+	local ws = minetest.registered_nodes["default:water_source"]
+	if ws then
+		minetest.override_item("default:water_source", {
+			liquid_viscosity = viscosity,
+			liquid_range = range,
+		})
+	end
+
+	-- Override water_flowing
+	local wf = minetest.registered_nodes["default:water_flowing"]
+	if wf then
+		minetest.override_item("default:water_flowing", {
+			liquid_viscosity = viscosity,
+			liquid_range = range,
+		})
+	end
+
+	minetest.log("action", "[realistic_fluids] Water viscosity=" .. viscosity .. " range=" .. range)
+end)
+
+-- ============================================================
 -- Chunk discovery
 -- ============================================================
 
