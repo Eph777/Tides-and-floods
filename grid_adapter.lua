@@ -174,8 +174,11 @@ minetest.register_globalstep(function(dtime)
 	global_wave_time = global_wave_time + dtime
 	local wave_h = nil
 	if settings.enable_waves then
-		-- Boundary wave generator: injects a 1.5-block high rolling wave
-		wave_h = math.max(0, math.sin(global_wave_time * 1.5)) * 1.5 * settings.wave_force
+		-- Boundary wave generator: injects a massive, fast-moving wave
+		-- We scale it up heavily so it produces a multi-block high crashing wave
+		-- Base height multiplier is 5.0 (for default wave_force 0.2, gives a 5 block wave)
+		local speed = 2.5 -- Faster pulsing
+		wave_h = math.max(0, math.sin(global_wave_time * speed)) * 25.0 * settings.wave_force
 	end
 	
 	realistic_fluids.active_cells = 0
