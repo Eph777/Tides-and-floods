@@ -93,7 +93,7 @@ function FluidGrid:init_from_world()
 	end
 end
 
-function FluidGrid:sync(wave_h)
+function FluidGrid:sync(flood_h)
 	if not self.active then return end
 	
 	local air_pos = {}
@@ -104,7 +104,7 @@ function FluidGrid:sync(wave_h)
 	local min_z = self.block_pos.z
 	
 	if realistic_fluids.active_cells + (BLOCK_SIZE * BLOCK_SIZE) <= settings.tick_budget then
-		self.sim:step(wave_h)
+		self.sim:step(flood_h)
 		realistic_fluids.active_cells = realistic_fluids.active_cells + (BLOCK_SIZE * BLOCK_SIZE)
 		
 		local has_water = false
@@ -187,13 +187,14 @@ minetest.register_globalstep(function(dtime)
 	if settings.disable_lbm then return end
 	
 	global_wave_time = global_wave_time + dtime
-	local wave_h = nil
+	local flood_h = nil
 	if settings.enable_waves then
-		-- Boundary wave generator: injects a massive, fast-moving wave
-		-- We scale it up heavily so it produces a multi-block high crashing wave
-		-- Base height multiplier is 5.0 (for default wave_force 0.2, gives a 5 block wave)
-		local speed = 2.5 -- Faster pulsing
-		wave_h = math.max(0, math.sin(global_wave_time * speed)) * 25.0 * settings.wave_force
+		-- Global Coastal Flood generator
+		-- Gradually and uniformly raises the ocean level across the entire map, 
+		-- pushing water inland smoothly without chunk boundary glitches.
+		-- Speed controls how fast the tide comes in.
+		local speed = 0.1
+		flood_h = (1.0 - math.cos(global_wave_time * speed)) * 10.0 * settings.wave_force
 	end
 	
 	realistic_fluids.active_cells = 0
@@ -204,7 +205,7 @@ minetest.register_globalstep(function(dtime)
 	
 	while hash do
 		if grid.active then
-			grid:sync(wave_h)
+			grid:sync(flood_h)
 		end
 		
 		last_hash = hash

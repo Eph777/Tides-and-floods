@@ -84,7 +84,7 @@ local dx = {1, -1, 0, 0}
 local dz = {0, 0, 1, -1}
 local opp = {2, 1, 4, 3}
 
-function SWESim:step(wave_h)
+function SWESim:step(flood_h)
 	local w = self.width
 	local h = self.height
 	local dt = self.dt
@@ -174,10 +174,11 @@ function SWESim:step(wave_h)
 			self.h[idx] = self.h[idx] + dt * net_volume
 			if self.h[idx] < 0 then self.h[idx] = 0 end
 			
-			-- Boundary Wave Injection
-			if wave_h and x == 0 then
-				if self.h[idx] < wave_h then
-					self.h[idx] = wave_h
+			-- Global Flood Injection: smoothly raise the ocean level everywhere
+			if flood_h and self.b[idx] <= 0 then
+				local H = self.h[idx] + self.b[idx]
+				if H < flood_h then
+					self.h[idx] = flood_h - self.b[idx]
 				end
 			end
 		end
