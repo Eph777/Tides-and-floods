@@ -31,6 +31,15 @@ realistic_fluids.settings = {
 
 		-- Buoyancy force multiplier
 		buoyancy_force = tonumber(minetest.settings:get("realistic_fluids_buoyancy_force")) or 6.0,
+
+		-- Progressive coastal flooding
+		flood_enabled = minetest.settings:get_bool("realistic_fluids_flood_enabled", true),
+
+		-- How fast the sea level rises (blocks per minute)
+		flood_speed = tonumber(minetest.settings:get("realistic_fluids_flood_speed")) or 0.5,
+
+		-- Maximum flood height above base sea level (blocks)
+		flood_max = tonumber(minetest.settings:get("realistic_fluids_flood_max")) or 8,
 	},
 
 	-- ========== Building Debris ==========

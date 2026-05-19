@@ -16,7 +16,8 @@ minetest.register_globalstep(function(dtime)
 	if not settings.enabled then return end
 
 	local time = realistic_fluids.ocean_time or 0
-	local sea = settings.sea_level
+	local flood_rise = realistic_fluids.flood_rise or 0
+	local sea = settings.sea_level + flood_rise
 	local iters = settings.wave_iterations
 	local amp = settings.wave_height
 	local buoy_force = settings.buoyancy_force
@@ -132,7 +133,8 @@ minetest.register_globalstep(function(dtime)
 	splash_timer = 0
 
 	local time = realistic_fluids.ocean_time or 0
-	local sea = settings.sea_level
+	local flood_rise = realistic_fluids.flood_rise or 0
+	local sea = settings.sea_level + flood_rise
 	local iters = settings.wave_iterations
 	local amp = settings.wave_height
 

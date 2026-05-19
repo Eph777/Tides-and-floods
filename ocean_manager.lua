@@ -15,6 +15,9 @@ local math_floor = math.floor
 local math_min = math.min
 local math_max = math.max
 
+-- Flood state: current flood level above base sea_level
+local flood_rise = 0
+
 -- ============================================================
 -- Chunk discovery
 -- ============================================================
@@ -29,11 +32,13 @@ local function get_chunk_coords(pos)
 end
 
 -- Scan a chunk column with VoxelManip to find the seafloor for each (x,z).
--- Returns a table[local_index] = seafloor_y, or nil if no ocean here.
-local function scan_chunk_seafloor(min_x, min_z)
+-- Also detects coastal land columns that could be flooded.
+-- Returns a table[local_index] = {floor_y=N, is_ocean=bool, land_y=N or nil}, or nil if nothing interesting.
+local function scan_chunk_terrain(min_x, min_z)
 	local sea = settings.sea_level
+	local flood_max = settings.flood_max or 8
 	local y_min = sea - 30
-	local y_max = sea + 10
+	local y_max = sea + flood_max + 6
 
 	local p1 = {x = min_x, y = y_min, z = min_z}
 	local p2 = {x = min_x + CHUNK - 1, y = y_max, z = min_z + CHUNK - 1}
@@ -48,16 +53,17 @@ local function scan_chunk_seafloor(min_x, min_z)
 	local c_air = minetest.get_content_id("air")
 	local c_ignore = minetest.get_content_id("ignore")
 
-	local seafloor = {}
-	local has_ocean = false
+	local columns = {}
+	local has_anything = false
 
 	for lz = 0, CHUNK - 1 do
 		for lx = 0, CHUNK - 1 do
 			local idx = lz * CHUNK + lx + 1
 			local floor_y = nil
 			local found_water = false
+			local land_surface_y = nil
 
-			-- Scan top-down: find the water column then the first solid below it
+			-- Scan top-down
 			for y = y_max, y_min, -1 do
 				local vi = va:index(min_x + lx, y, min_z + lz)
 				local cid = data[vi]
@@ -65,43 +71,54 @@ local function scan_chunk_seafloor(min_x, min_z)
 				if cid == c_water_source or cid == c_water_flowing then
 					found_water = true
 				elseif found_water and cid ~= c_air and cid ~= c_ignore then
-					-- First solid block under water = seafloor
 					floor_y = y
 					break
 				elseif not found_water and cid ~= c_air and cid ~= c_ignore then
-					-- Solid above water level with no water found above it
-					-- This column is land, not ocean
+					-- Land column: record the surface height if it's near sea level
+					if y <= sea + flood_max + 2 then
+						land_surface_y = y
+					end
 					break
 				end
 			end
 
 			if found_water then
-				has_ocean = true
-				seafloor[idx] = floor_y or (y_min - 1)
+				has_anything = true
+				columns[idx] = {
+					floor_y = floor_y or (y_min - 1),
+					is_ocean = true,
+				}
+			elseif land_surface_y and land_surface_y <= sea + flood_max + 2 then
+				-- Coastal land that could be flooded
+				has_anything = true
+				columns[idx] = {
+					floor_y = land_surface_y,
+					is_ocean = false,
+				}
 			else
-				seafloor[idx] = nil  -- land column, don't touch
+				columns[idx] = nil
 			end
 		end
 	end
 
-	if has_ocean then
-		return seafloor
+	if has_anything then
+		return columns
 	end
 	return nil
 end
 
--- Register a chunk as active ocean
+-- Register a chunk as active
 local function register_chunk(min_x, min_z)
 	local hash = chunk_hash(min_x, min_z)
 	if active_chunks[hash] then return end
 
-	local seafloor = scan_chunk_seafloor(min_x, min_z)
-	if not seafloor then return end
+	local columns = scan_chunk_terrain(min_x, min_z)
+	if not columns then return end
 
 	active_chunks[hash] = {
 		min_x = min_x,
 		min_z = min_z,
-		seafloor = seafloor,
+		columns = columns,
 	}
 	chunk_queue[#chunk_queue + 1] = hash
 end
@@ -133,21 +150,23 @@ local function ensure_content_ids()
 	end
 end
 
--- Update one chunk: compute Gerstner heights and write water/air via VoxelManip
-local function update_chunk(chunk_data, time)
+-- Update one chunk: compute Gerstner heights + flood level and write water/air via VoxelManip
+local function update_chunk(chunk_data, time, current_flood_rise)
 	ensure_content_ids()
 
 	local min_x = chunk_data.min_x
 	local min_z = chunk_data.min_z
-	local seafloor = chunk_data.seafloor
+	local columns = chunk_data.columns
 	local sea = settings.sea_level
 	local iters = settings.wave_iterations
 	local amp = settings.wave_height
 
+	-- Effective sea level includes progressive flood rise
+	local effective_sea = sea + current_flood_rise
+
 	-- Determine vertical bounds for the VoxelManip
-	-- We need from the deepest seafloor to sea_level + max_amplitude + margin
 	local y_min = sea - 30
-	local y_max = sea + math_floor(amp) + 4
+	local y_max = math_floor(effective_sea + amp) + 4
 
 	local p1 = {x = min_x, y = y_min, z = min_z}
 	local p2 = {x = min_x + CHUNK - 1, y = y_max, z = min_z + CHUNK - 1}
@@ -162,41 +181,58 @@ local function update_chunk(chunk_data, time)
 	for lz = 0, CHUNK - 1 do
 		for lx = 0, CHUNK - 1 do
 			local idx = lz * CHUNK + lx + 1
-			local floor_y = seafloor[idx]
+			local col = columns[idx]
 
-			if floor_y then
-				-- This is an ocean column
+			if col then
 				local wx = min_x + lx
 				local wz = min_z + lz
+				local floor_y = col.floor_y
 
-				local top_y, remainder = OceanWaves.get_surface(
-					wx, wz, time, sea, iters, amp
-				)
+				if col.is_ocean then
+					-- Ocean column: Gerstner waves on top of the rising sea level
+					local top_y = OceanWaves.get_surface(
+						wx, wz, time, effective_sea, iters, amp
+					)
 
-				-- Clamp: don't go below seafloor
-				if top_y < floor_y + 1 then
-					top_y = floor_y
-				end
-
-				-- Write water from seafloor+1 up to top_y
-				for y = floor_y + 1, math_min(top_y, y_max) do
-					local vi = va:index(wx, y, wz)
-					if data[vi] ~= c_water then
-						data[vi] = c_water
-						modified = true
+					if top_y < floor_y + 1 then
+						top_y = floor_y
 					end
-				end
 
-				-- Write air from top_y+1 upward (clear old wave crests)
-				for y = math_max(top_y + 1, floor_y + 1), y_max do
-					local vi = va:index(wx, y, wz)
-					local existing = data[vi]
-					-- Only replace water or air, never solid blocks
-					if existing == c_water then
-						data[vi] = c_air
-						modified = true
-					elseif existing ~= c_air then
-						break  -- hit solid, stop clearing
+					-- Write water from seafloor+1 up to top_y
+					for y = floor_y + 1, math_min(top_y, y_max) do
+						local vi = va:index(wx, y, wz)
+						if data[vi] ~= c_water then
+							data[vi] = c_water
+							modified = true
+						end
+					end
+
+					-- Clear above
+					for y = math_max(top_y + 1, floor_y + 1), y_max do
+						local vi = va:index(wx, y, wz)
+						local existing = data[vi]
+						if existing == c_water then
+							data[vi] = c_air
+							modified = true
+						elseif existing ~= c_air then
+							break
+						end
+					end
+				else
+					-- Land column: flood it if the rising sea has reached this elevation
+					local flood_top = math_floor(effective_sea)
+
+					if flood_top > floor_y then
+						-- Fill water from terrain surface+1 up to flood level
+						for y = floor_y + 1, math_min(flood_top, y_max) do
+							local vi = va:index(wx, y, wz)
+							local existing = data[vi]
+							-- Only replace air (don't destroy buildings/trees)
+							if existing == c_air then
+								data[vi] = c_water
+								modified = true
+							end
+						end
 					end
 				end
 			end
@@ -205,7 +241,7 @@ local function update_chunk(chunk_data, time)
 
 	if modified then
 		vm:set_data(data)
-		vm:write_to_map(false)  -- false = don't recalculate light (faster)
+		vm:write_to_map(false)
 	end
 end
 
@@ -218,8 +254,15 @@ minetest.register_globalstep(function(dtime)
 
 	global_time = global_time + dtime * settings.wave_speed
 
+	-- Progressive flood: slowly raise the effective sea level
+	if settings.flood_enabled then
+		local rise_per_sec = (settings.flood_speed or 0.5) / 60.0
+		flood_rise = math_min(flood_rise + rise_per_sec * dtime, settings.flood_max or 8)
+	end
+
 	-- Export for buoyancy module
 	realistic_fluids.ocean_time = global_time
+	realistic_fluids.flood_rise = flood_rise
 
 	local num_chunks = #chunk_queue
 	if num_chunks == 0 then return end
@@ -255,7 +298,7 @@ minetest.register_globalstep(function(dtime)
 		queue_index = queue_index + 1
 
 		if nearby[hash] and active_chunks[hash] then
-			update_chunk(active_chunks[hash], global_time)
+			update_chunk(active_chunks[hash], global_time, flood_rise)
 			processed = processed + 1
 		end
 	end
