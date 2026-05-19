@@ -166,10 +166,12 @@ minetest.register_globalstep(function(dtime)
 	global_wave_time = global_wave_time + dtime
 	local wave_fx, wave_fz = 0, 0
 	if settings.enable_waves then
-		-- Strong, pulsing directional storm wind
-		local pulse = math.max(0, math.sin(global_wave_time * 1.5)) * 4.0
-		wave_fx = (1.0 + pulse) * settings.wave_force
-		wave_fz = (math.cos(global_wave_time * 0.5) * settings.wave_force)
+		-- Progressive, realistic storm wind (gentle base push + moderate pulses)
+		-- Capped to prevent absurd height pileups across the chunk.
+		local pulse = math.max(0, math.sin(global_wave_time * 1.0)) * 0.5
+		-- Typical force is ~0.1 to 0.5. At 0.1, max height diff is ~1.6 blocks per chunk.
+		wave_fx = (0.2 + pulse) * settings.wave_force
+		wave_fz = (math.cos(global_wave_time * 0.5) * settings.wave_force * 0.2)
 	end
 	
 	realistic_fluids.active_cells = 0
