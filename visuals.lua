@@ -1,5 +1,5 @@
 -- visuals.lua
--- Phase 4: Visuals and Audio
+-- Phase 4: Visuals and Audio (SWE)
 
 local settings = realistic_fluids.settings
 local BLOCK_SIZE = 16
@@ -7,7 +7,7 @@ local BLOCK_SIZE = 16
 -- Register 8 animated flowing nodes (param2 0-7)
 for i = 0, 7 do
 	minetest.register_node("realistic_fluids:water_flowing_" .. i, {
-		description = "Flowing Water (LBM Level " .. i .. ")",
+		description = "Flowing Water (SWE Level " .. i .. ")",
 		drawtype = "flowingliquid",
 		tiles = {
 			{
@@ -68,36 +68,36 @@ minetest.register_globalstep(function(dtime)
 	
 	for _, grid in pairs(realistic_fluids.grids) do
 		if grid.active then
-			for y = 0, BLOCK_SIZE - 1 do
-				local sim = grid.y_sims[y]
-				if sim then
-					for z = 0, BLOCK_SIZE - 1 do
-						for x = 0, BLOCK_SIZE - 1 do
-							if not sim.solid[sim:get_index(x, z)] then
-								local ux, uz = sim:get_velocity(x, z)
-								local speed = math.sqrt(ux*ux + uz*uz)
-								
-								if speed > 1.5 then
-									-- Spawn foam
-									local pos = {
-										x = grid.block_pos.x + x,
-										y = grid.block_pos.y + y + 0.4,
-										z = grid.block_pos.z + z
-									}
-									
-									minetest.add_particle({
-										pos = pos,
-										velocity = {x = ux, y = 0.1, z = uz},
-										acceleration = {x = 0, y = 0, z = 0},
-										expirationtime = 0.5 + math.random() * 0.5,
-										size = 1 + math.random(),
-										collisiondetection = true,
-										collision_removal = true,
-										texture = "bubble.png", -- Usually available in minetest_game
-										glow = 1
-									})
-								end
-							end
+			local sim = grid.sim
+			for z = 0, BLOCK_SIZE - 1 do
+				for x = 0, BLOCK_SIZE - 1 do
+					local h = sim:get_water_height(x, z)
+					if h > 0.1 then
+						local ux, uz = sim:get_velocity(x, z)
+						local speed = math.sqrt(ux*ux + uz*uz)
+						
+						if speed > 2.0 then
+							-- Spawn foam on surface
+							local idx = sim:get_index(x, z)
+							local b = grid.base_y[idx]
+							
+							local pos = {
+								x = grid.block_pos.x + x,
+								y = b + h + 0.1,
+								z = grid.block_pos.z + z
+							}
+							
+							minetest.add_particle({
+								pos = pos,
+								velocity = {x = ux, y = 0.1, z = uz},
+								acceleration = {x = 0, y = -1, z = 0},
+								expirationtime = 0.5 + math.random() * 0.5,
+								size = 1 + math.random() * 2,
+								collisiondetection = true,
+								collision_removal = true,
+								texture = "bubble.png",
+								glow = 1
+							})
 						end
 					end
 				end
@@ -119,23 +119,22 @@ minetest.register_globalstep(function(dtime)
 		local ppos = player:get_pos()
 		local bpos = {
 			x = math.floor(ppos.x / BLOCK_SIZE) * BLOCK_SIZE,
-			y = math.floor(ppos.y / BLOCK_SIZE) * BLOCK_SIZE,
+			y = 0,
 			z = math.floor(ppos.z / BLOCK_SIZE) * BLOCK_SIZE
 		}
 		
-		local hash = bpos.x .. "," .. bpos.y .. "," .. bpos.z
+		local hash = bpos.x .. "," .. bpos.z
 		local grid = realistic_fluids.grids[hash]
 		
 		if grid and grid.active then
-			local ly = math.floor(ppos.y) - bpos.y
-			local sim = grid.y_sims[ly]
-			if sim then
-				local max_speed = 0
-				local sx, sz = 0, 0
-				
-				-- Scan around player for fastest flow
-				for z = 0, BLOCK_SIZE - 1 do
-					for x = 0, BLOCK_SIZE - 1 do
+			local sim = grid.sim
+			local max_speed = 0
+			local sx, sz = 0, 0
+			
+			for z = 0, BLOCK_SIZE - 1 do
+				for x = 0, BLOCK_SIZE - 1 do
+					local h = sim:get_water_height(x, z)
+					if h > 0.1 then
 						local ux, uz = sim:get_velocity(x, z)
 						local spd = ux*ux + uz*uz
 						if spd > max_speed then
@@ -144,14 +143,14 @@ minetest.register_globalstep(function(dtime)
 						end
 					end
 				end
-				
-				if max_speed > 1.0 then
-					minetest.sound_play("default_water_flowing", {
-						pos = {x = bpos.x + sx, y = ppos.y, z = bpos.z + sz},
-						max_hear_distance = 16,
-						gain = math.min(1.0, max_speed * 0.2),
-					}, true)
-				end
+			end
+			
+			if max_speed > 2.0 then
+				minetest.sound_play("default_water_flowing", {
+					pos = {x = bpos.x + sx, y = ppos.y, z = bpos.z + sz},
+					max_hear_distance = 16,
+					gain = math.min(1.0, max_speed * 0.1),
+				}, true)
 			end
 		end
 	end

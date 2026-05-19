@@ -24,4 +24,4 @@ dofile(modpath .. "/dynamics.lua")
 -- Phase 4: Visuals & Audio
 dofile(modpath .. "/visuals.lua")
 
-minetest.log("action", "[realistic_fluids] Successfully loaded LBM fluid simulation.")
+minetest.log("action", "[realistic_fluids] Successfully loaded SWE fluid simulation.")
