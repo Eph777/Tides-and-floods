@@ -207,4 +207,22 @@ minetest.register_on_placenode(function(pos, newnode, placer, oldnode, itemstack
 	end
 end)
 
+minetest.register_lbm({
+	name = "realistic_fluids:wake_water",
+	nodenames = {"group:water"},
+	run_at_every_load = true,
+	action = function(pos, node)
+		if settings.disable_lbm then return end
+		local bpos = get_block_pos(pos)
+		local hash = hash_pos(bpos)
+		
+		if not realistic_fluids.grids[hash] then
+			local grid = FluidGrid.new(bpos)
+			grid:init_from_world()
+			realistic_fluids.grids[hash] = grid
+		end
+		realistic_fluids.grids[hash].active = true
+	end
+})
+
 return FluidGrid
