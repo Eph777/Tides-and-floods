@@ -1,22 +1,65 @@
 -- settings.lua
+-- Global settings for the Physics Mod
+
 realistic_fluids = {}
 
 realistic_fluids.settings = {
-	-- LBM relaxation time (controls viscosity). Default 0.6. Higher = more viscous. > 0.5 required for stability.
-	lbm_tau = tonumber(minetest.settings:get("realistic_fluids_lbm_tau")) or 0.6,
-	
-	-- Max number of LBM cells to update per tick to stay within 5ms budget.
-	tick_budget = tonumber(minetest.settings:get("realistic_fluids_tick_budget")) or 65536,
-	
-	-- Enable shore erosion.
-	enable_erosion = minetest.settings:get_bool("realistic_fluids_enable_erosion", false),
+	-- Master kill switch
+	disabled = minetest.settings:get_bool("realistic_fluids_disabled", false),
 
-	-- Enable constant wave generation (wind force).
-	enable_waves = minetest.settings:get_bool("realistic_fluids_enable_waves", true),
-	
-	-- Wave force magnitude.
-	wave_force = tonumber(minetest.settings:get("realistic_fluids_wave_force")) or 0.2,
+	-- ========== Ocean Physics ==========
+	ocean = {
+		enabled = minetest.settings:get_bool("realistic_fluids_ocean_enabled", true),
 
-	-- Disable the entire LBM system and fallback to default water.
-	disable_lbm = minetest.settings:get_bool("realistic_fluids_disable_lbm", false),
+		-- Sea level Y coordinate (Minetest default ocean is at Y=1)
+		sea_level = tonumber(minetest.settings:get("realistic_fluids_sea_level")) or 1,
+
+		-- Wave amplitude in blocks (how tall the crests get)
+		wave_height = tonumber(minetest.settings:get("realistic_fluids_wave_height")) or 1.8,
+
+		-- Wave speed multiplier (higher = faster rolling waves)
+		wave_speed = tonumber(minetest.settings:get("realistic_fluids_wave_speed")) or 1.0,
+
+		-- Number of Gerstner iterations (1-5, higher = more detail but slower)
+		wave_iterations = tonumber(minetest.settings:get("realistic_fluids_wave_iterations")) or 3,
+
+		-- How many chunks to process per server step (performance tuning)
+		chunks_per_tick = tonumber(minetest.settings:get("realistic_fluids_chunks_per_tick")) or 8,
+
+		-- Horizontal radius around player to simulate (in blocks)
+		sim_radius = tonumber(minetest.settings:get("realistic_fluids_sim_radius")) or 64,
+
+		-- Buoyancy force multiplier
+		buoyancy_force = tonumber(minetest.settings:get("realistic_fluids_buoyancy_force")) or 6.0,
+	},
+
+	-- ========== Building Debris ==========
+	debris = {
+		enabled = minetest.settings:get_bool("realistic_fluids_debris_enabled", true),
+
+		-- Number of fragments per broken block (min, max)
+		fragment_min = tonumber(minetest.settings:get("realistic_fluids_fragment_min")) or 3,
+		fragment_max = tonumber(minetest.settings:get("realistic_fluids_fragment_max")) or 6,
+
+		-- Fragment lifetime in seconds
+		fragment_lifetime = tonumber(minetest.settings:get("realistic_fluids_fragment_lifetime")) or 4.0,
+
+		-- Initial burst velocity for fragments
+		burst_speed = tonumber(minetest.settings:get("realistic_fluids_burst_speed")) or 3.0,
+
+		-- Gravity acceleration (m/s^2)
+		gravity = tonumber(minetest.settings:get("realistic_fluids_debris_gravity")) or 9.8,
+
+		-- Bounce coefficient (0 = no bounce, 1 = perfect bounce)
+		bounce = tonumber(minetest.settings:get("realistic_fluids_debris_bounce")) or 0.3,
+
+		-- Fragment visual scale
+		fragment_scale = tonumber(minetest.settings:get("realistic_fluids_fragment_scale")) or 0.25,
+
+		-- Enable explosion debris (TNT etc)
+		explosions = minetest.settings:get_bool("realistic_fluids_debris_explosions", true),
+
+		-- Explosion burst speed multiplier
+		explosion_mult = tonumber(minetest.settings:get("realistic_fluids_explosion_mult")) or 3.0,
+	},
 }
