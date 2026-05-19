@@ -1,6 +1,9 @@
 -- swe_sim.lua
 -- Shallow Water Equations (Pipe Model) for voxel fluid simulation
 
+local Gerstner = dofile(minetest.get_modpath("realistic_fluids") .. "/gerstner.lua")
+local settings = realistic_fluids.settings
+
 local SWESim = {}
 SWESim.__index = SWESim
 
@@ -84,7 +87,7 @@ local dx = {1, -1, 0, 0}
 local dz = {0, 0, 1, -1}
 local opp = {2, 1, 4, 3}
 
-function SWESim:step(flood_h)
+function SWESim:step(global_time, block_x, block_z)
 	local w = self.width
 	local h = self.height
 	local dt = self.dt
@@ -174,15 +177,20 @@ function SWESim:step(flood_h)
 			self.h[idx] = self.h[idx] + dt * net_volume
 			if self.h[idx] < 0 then self.h[idx] = 0 end
 			
-			-- Global Flood Injection: smoothly raise the water table everywhere
-			if flood_h then
-				local H = self.h[idx] + self.b[idx]
-				if H < flood_h then
-					-- Slowly creep up to the flood target
-					self.h[idx] = self.h[idx] + dt * 0.25
-					if self.h[idx] + self.b[idx] > flood_h then
-						self.h[idx] = flood_h - self.b[idx]
-					end
+			-- Gerstner Deep Ocean Overlay
+			if global_time and self.b[idx] <= 0 then
+				local world_x = block_x + x
+				local world_z = block_z + z
+				local g_height = Gerstner.get_height(world_x, world_z, global_time, 3) * settings.wave_force
+				
+				-- Force H to match Gerstner wave surface
+				local sea_level = 1.0
+				local target_H = sea_level + g_height
+				
+				if target_H > self.b[idx] then
+					self.h[idx] = target_H - self.b[idx]
+				else
+					self.h[idx] = 0.0
 				end
 			end
 		end

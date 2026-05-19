@@ -54,8 +54,15 @@ minetest.register_globalstep(function(dtime)
 			local nvx = vel.x + ux * force_factor
 			local nvz = vel.z + uz * force_factor
 			
+			local surface_y = base_y + h
+			local depth = surface_y - pos.y
+			local buoyant_y = 0
+			if depth > 0.5 then
+				buoyant_y = depth * 2.0 * dtime
+			end
+			
 			if nvx*nvx + nvz*nvz < 25 then
-				player:add_velocity({x = ux * force_factor, y = 0, z = uz * force_factor})
+				player:add_velocity({x = ux * force_factor, y = buoyant_y, z = uz * force_factor})
 			end
 		end
 	end
@@ -66,7 +73,15 @@ minetest.register_globalstep(function(dtime)
 			local h, ux, uz, base_y = get_fluid_data(pos)
 			if h > 0.5 and pos.y >= base_y and pos.y <= base_y + h + 1.0 then
 				local force_factor = 3.0 * dtime
-				entity.object:add_velocity({x = ux * force_factor, y = 0, z = uz * force_factor})
+				
+				local surface_y = base_y + h
+				local depth = surface_y - pos.y
+				local buoyant_y = 0
+				if depth > 0.2 then
+					buoyant_y = depth * 4.0 * dtime
+				end
+				
+				entity.object:add_velocity({x = ux * force_factor, y = buoyant_y, z = uz * force_factor})
 			end
 		end
 	end

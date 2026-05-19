@@ -93,7 +93,7 @@ function FluidGrid:init_from_world()
 	end
 end
 
-function FluidGrid:sync(flood_h)
+function FluidGrid:sync(global_time)
 	if not self.active then return end
 	
 	local air_pos = {}
@@ -104,7 +104,7 @@ function FluidGrid:sync(flood_h)
 	local min_z = self.block_pos.z
 	
 	if realistic_fluids.active_cells + (BLOCK_SIZE * BLOCK_SIZE) <= settings.tick_budget then
-		self.sim:step(flood_h)
+		self.sim:step(global_time, min_x, min_z)
 		realistic_fluids.active_cells = realistic_fluids.active_cells + (BLOCK_SIZE * BLOCK_SIZE)
 		
 		local has_water = false
@@ -187,13 +187,9 @@ minetest.register_globalstep(function(dtime)
 	if settings.disable_lbm then return end
 	
 	global_wave_time = global_wave_time + dtime
-	local flood_h = nil
+	local current_time = nil
 	if settings.enable_waves then
-		-- Continuous Global Flood (non-repeating)
-		-- Smoothly and uniformly raises the water level to submerge the shore
-		local speed = 0.05
-		-- Caps out at +10 blocks above sea level, rising slowly over time
-		flood_h = math.min(10.0, global_wave_time * speed) * settings.wave_force
+		current_time = global_wave_time
 	end
 	
 	realistic_fluids.active_cells = 0
@@ -203,13 +199,13 @@ minetest.register_globalstep(function(dtime)
 	if not hash then hash, grid = next(realistic_fluids.grids) end
 	
 	while hash do
-		-- Force chunks to wake up if the global flood is trying to submerge them
-		if flood_h and flood_h > 0.05 then
+		-- Keep ocean chunks awake if waves are enabled
+		if current_time then
 			grid.active = true
 		end
 		
 		if grid.active then
-			grid:sync(flood_h)
+			grid:sync(current_time)
 		end
 		
 		last_hash = hash
