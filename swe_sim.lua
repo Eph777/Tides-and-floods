@@ -174,11 +174,15 @@ function SWESim:step(flood_h)
 			self.h[idx] = self.h[idx] + dt * net_volume
 			if self.h[idx] < 0 then self.h[idx] = 0 end
 			
-			-- Global Flood Injection: smoothly raise the ocean level everywhere
-			if flood_h and self.b[idx] <= 0 then
+			-- Global Flood Injection: smoothly raise the water table everywhere
+			if flood_h then
 				local H = self.h[idx] + self.b[idx]
 				if H < flood_h then
-					self.h[idx] = flood_h - self.b[idx]
+					-- Slowly creep up to the flood target
+					self.h[idx] = self.h[idx] + dt * 0.25
+					if self.h[idx] + self.b[idx] > flood_h then
+						self.h[idx] = flood_h - self.b[idx]
+					end
 				end
 			end
 		end

@@ -189,12 +189,11 @@ minetest.register_globalstep(function(dtime)
 	global_wave_time = global_wave_time + dtime
 	local flood_h = nil
 	if settings.enable_waves then
-		-- Global Coastal Flood generator
-		-- Gradually and uniformly raises the ocean level across the entire map, 
-		-- pushing water inland smoothly without chunk boundary glitches.
-		-- Speed controls how fast the tide comes in.
-		local speed = 0.1
-		flood_h = (1.0 - math.cos(global_wave_time * speed)) * 10.0 * settings.wave_force
+		-- Continuous Global Flood (non-repeating)
+		-- Smoothly and uniformly raises the water level to submerge the shore
+		local speed = 0.05
+		-- Caps out at +10 blocks above sea level, rising slowly over time
+		flood_h = math.min(10.0, global_wave_time * speed) * settings.wave_force
 	end
 	
 	realistic_fluids.active_cells = 0
@@ -204,6 +203,11 @@ minetest.register_globalstep(function(dtime)
 	if not hash then hash, grid = next(realistic_fluids.grids) end
 	
 	while hash do
+		-- Force chunks to wake up if the global flood is trying to submerge them
+		if flood_h and flood_h > 0.05 then
+			grid.active = true
+		end
+		
 		if grid.active then
 			grid:sync(flood_h)
 		end
