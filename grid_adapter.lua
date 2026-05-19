@@ -155,11 +155,26 @@ function FluidGrid:sync(wave_h)
 		end
 	end
 	
-	for _, p in ipairs(air_pos) do minetest.swap_node(p, {name="air"}) end
-	for _, p in ipairs(source_pos) do minetest.swap_node(p, {name="default:water_source"}) end
+	for _, p in ipairs(air_pos) do 
+		local curr = minetest.get_node(p).name
+		if minetest.get_item_group(curr, "water") > 0 then
+			minetest.swap_node(p, {name="air"})
+		end
+	end
+	
+	for _, p in ipairs(source_pos) do 
+		local curr = minetest.get_node(p).name
+		if curr == "air" or minetest.get_item_group(curr, "water") > 0 then
+			minetest.swap_node(p, {name="default:water_source"}) 
+		end
+	end
+	
 	for lvl = 1, 7 do
 		for _, p in ipairs(flowing_pos[lvl]) do
-			minetest.swap_node(p, {name="realistic_fluids:water_flowing_" .. lvl})
+			local curr = minetest.get_node(p).name
+			if curr == "air" or minetest.get_item_group(curr, "water") > 0 then
+				minetest.swap_node(p, {name="realistic_fluids:water_flowing_" .. lvl})
+			end
 		end
 	end
 end
