@@ -1,12 +1,55 @@
 -- ocean_buoyancy.lua
--- Entity interaction with Gerstner ocean: bobbing, floating, splash particles
+-- Entity interaction with ocean: bobbing, floating, splash particles.
+-- Detects both default:water_source (deep ocean) and realistic_fluids:cwater (shore CA water).
 
 local settings = realistic_fluids.settings.ocean
 local OceanWaves = realistic_fluids.ocean_waves
+local MAX_VOL = realistic_fluids.settings.ca.max_volume
 
 local math_max = math.max
 local math_min = math.min
 local math_random = math.random
+local math_floor = math.floor
+
+-- ============================================================
+-- Get effective water surface Y at a world position
+-- ============================================================
+-- Checks the Gerstner analytical surface for deep ocean,
+-- and reads actual CA water param2 for shore water.
+local function get_water_surface_at(pos, time, sea, iters, amp)
+	-- First check if we're standing in CA water
+	local node = minetest.get_node(pos)
+	if node.name == "realistic_fluids:cwater" then
+		-- CA water: surface = block Y bottom + fractional height from param2
+		local frac = (node.param2 or 0) / MAX_VOL
+		return math_floor(pos.y) - 0.5 + frac
+	end
+
+	-- Check the node at feet level and one above
+	local above = {x = pos.x, y = pos.y + 1, z = pos.z}
+	local node_above = minetest.get_node(above)
+	if node_above.name == "realistic_fluids:cwater" then
+		local frac = (node_above.param2 or 0) / MAX_VOL
+		return math_floor(above.y) - 0.5 + frac
+	end
+
+	-- Check below for CA water
+	local below = {x = pos.x, y = pos.y - 1, z = pos.z}
+	local node_below = minetest.get_node(below)
+	if node_below.name == "realistic_fluids:cwater" then
+		local frac = (node_below.param2 or 0) / MAX_VOL
+		return math_floor(below.y) - 0.5 + frac
+	end
+
+	-- Default water_source or deep ocean: use Gerstner analytical surface
+	if node.name == "default:water_source"
+	   or node_below.name == "default:water_source" then
+		return sea + OceanWaves.get_height(pos.x, pos.z, time, iters, amp)
+	end
+
+	-- No water here
+	return nil
+end
 
 -- ============================================================
 -- Player and Entity Buoyancy
@@ -27,9 +70,10 @@ minetest.register_globalstep(function(dtime)
 		local pos = player:get_pos()
 		if not pos then goto continue_player end
 
-		local wave_y = sea + OceanWaves.get_height(pos.x, pos.z, time, iters, amp)
+		local wave_y = get_water_surface_at(pos, time, sea, iters, amp)
+		if not wave_y then goto continue_player end
+
 		local feet_y = pos.y
-		local head_y = feet_y + 1.6  -- approximate player height
 
 		-- Only apply if player is near/in the water
 		if feet_y > wave_y + 2.0 then goto continue_player end
@@ -41,7 +85,7 @@ minetest.register_globalstep(function(dtime)
 			-- Buoyancy: push upward proportional to submersion
 			local vy = math_min(depth * buoy_force * dtime, 4.0)
 
-			-- Also apply horizontal flow from the wave
+			-- Also apply horizontal flow from the wave (for deep ocean)
 			local vx, vz = OceanWaves.get_velocity(pos.x, pos.z, time, iters, amp)
 			local flow_scale = 1.5 * dtime
 
@@ -62,13 +106,14 @@ minetest.register_globalstep(function(dtime)
 		if not pos then goto continue_entity end
 
 		-- Skip entities far from sea level
-		if pos.y > sea + amp + 5 or pos.y < sea - 30 then goto continue_entity end
+		if pos.y > sea + amp + 10 or pos.y < sea - 30 then goto continue_entity end
 
-		local wave_y = sea + OceanWaves.get_height(pos.x, pos.z, time, iters, amp)
+		local wave_y = get_water_surface_at(pos, time, sea, iters, amp)
+		if not wave_y then goto continue_entity end
+
 		local depth = wave_y - pos.y
 
 		if depth > 0.0 then
-			-- Strong buoyancy for items/boats
 			local vy = math_min(depth * buoy_force * 1.5 * dtime, 6.0)
 			local vx, vz = OceanWaves.get_velocity(pos.x, pos.z, time, iters, amp)
 			local flow_scale = 2.0 * dtime
@@ -142,8 +187,9 @@ minetest.register_globalstep(function(dtime)
 		local pos = player:get_pos()
 		if not pos then goto next_p end
 		local name = player:get_player_name()
-		local wave_y = sea + OceanWaves.get_height(pos.x, pos.z, time, iters, amp)
-		local is_sub = pos.y < wave_y
+
+		local wave_y = get_water_surface_at(pos, time, sea, iters, amp)
+		local is_sub = wave_y and pos.y < wave_y
 
 		if is_sub and not prev_submerged[name] then
 			try_splash(pos, name)
@@ -154,4 +200,4 @@ minetest.register_globalstep(function(dtime)
 	end
 end)
 
-minetest.log("action", "[realistic_fluids] Ocean buoyancy loaded.")
+minetest.log("action", "[realistic_fluids] Ocean buoyancy loaded (CA + deep ocean).")

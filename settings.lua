@@ -41,11 +41,29 @@ realistic_fluids.settings = {
 		-- Maximum flood height above base sea level (blocks)
 		flood_max = tonumber(minetest.settings:get("realistic_fluids_flood_max")) or 8,
 
-		-- Water lateral spreading speed (0 = fastest, 7 = slowest, default water is 1)
-		water_viscosity = tonumber(minetest.settings:get("realistic_fluids_water_viscosity")) or 0,
+		-- Depth below sea_level where deep ocean begins (water_source, no CA)
+		deep_ocean_depth = tonumber(minetest.settings:get("realistic_fluids_deep_ocean_depth")) or 5,
+	},
 
-		-- How far water flows from a source block (1-8, default is 8)
-		water_range = tonumber(minetest.settings:get("realistic_fluids_water_range")) or 8,
+	-- ========== Cellular Automata Fluid Engine ==========
+	ca = {
+		-- CA iterations per server tick (more = faster spreading, heavier CPU)
+		ticks_per_step = tonumber(minetest.settings:get("realistic_fluids_ca_ticks")) or 2,
+
+		-- Horizontal equalization damping threshold (prevents jitter)
+		-- Only transfer if volume difference > this value
+		damping = tonumber(minetest.settings:get("realistic_fluids_ca_damping")) or 1,
+
+		-- Maximum volume per cell (matches paramtype2 leveled range)
+		max_volume = 64,
+
+		-- Gravity transfer rate (fraction of available volume moved down per tick)
+		-- 1.0 = instant fall, 0.5 = half per tick
+		gravity_rate = tonumber(minetest.settings:get("realistic_fluids_ca_gravity_rate")) or 1.0,
+
+		-- Horizontal transfer rate (fraction of equalization applied per tick)
+		-- 1.0 = instant equalize, 0.3 = gradual spreading
+		horizontal_rate = tonumber(minetest.settings:get("realistic_fluids_ca_horizontal_rate")) or 0.8,
 	},
 
 	-- ========== Building Debris ==========
