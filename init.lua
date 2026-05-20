@@ -7,6 +7,9 @@ local modpath = minetest.get_modpath("realistic_fluids")
 -- Phase 0: Settings (creates the realistic_fluids global table)
 dofile(modpath .. "/settings.lua")
 
+-- Register custom nodes
+dofile(modpath .. "/nodes.lua")
+
 if realistic_fluids.settings.disabled then
 	minetest.log("action", "[realistic_fluids] Mod disabled via settings.")
 	return
