@@ -1,6 +1,6 @@
 -- ocean_manager.lua
 -- Ocean chunk manager: discovers ocean areas, applies Gerstner wave heights,
--- and runs 3D Cellular Automata fluid dynamics via VoxelManip.
+-- and spawns/piles surge_water nodes onto the coastline when wind/tides push.
 
 local settings = realistic_fluids.settings.ocean
 local OceanWaves = realistic_fluids.ocean_waves
@@ -10,7 +10,6 @@ local active_chunks = {}    -- hash -> {min_x, min_z, columns={}}
 local chunk_queue = {}       -- ordered list of hashes for round-robin
 local queue_index = 1
 local global_time = 0
-local tick_count = 0
 
 local CHUNK = 16
 local math_floor = math.floor
@@ -82,8 +81,7 @@ local function scan_chunk_terrain(min_x, min_z)
 
 	local c_water_source = minetest.get_content_id("default:water_source")
 	local c_water_flowing = minetest.get_content_id("default:water_flowing")
-	local c_cust_source = minetest.get_content_id("realistic_fluids:water_source")
-	local c_cust_flowing = minetest.get_content_id("realistic_fluids:water_flowing")
+	local c_cust_source = minetest.get_content_id("realistic_fluids:surge_water")
 	local c_air = minetest.get_content_id("air")
 	local c_ignore = minetest.get_content_id("ignore")
 
@@ -103,7 +101,7 @@ local function scan_chunk_terrain(min_x, min_z)
 				local cid = data[vi]
 
 				if cid == c_water_source or cid == c_water_flowing or
-				   cid == c_cust_source or cid == c_cust_flowing then
+				   cid == c_cust_source then
 					found_water = true
 				elseif cid == c_air or cid == c_ignore then
 					-- Keep scanning
@@ -172,7 +170,7 @@ end
 -- Auto-discover ocean chunks when water blocks load
 minetest.register_lbm({
 	name = "realistic_fluids:discover_ocean",
-	nodenames = {"default:water_source", "realistic_fluids:water_source"},
+	nodenames = {"default:water_source", "realistic_fluids:surge_water"},
 	run_at_every_load = true,
 	action = function(pos, node)
 		if not settings.enabled then return end
@@ -186,25 +184,21 @@ minetest.register_lbm({
 -- ============================================================
 
 -- Content IDs (cached after first use)
-local c_cust_source = nil
-local c_cust_flowing = nil
-local c_def_source = nil
-local c_def_flowing = nil
+local c_water = nil
+local c_water_flowing = nil
+local c_surge = nil
 local c_air = nil
-local c_ignore = nil
 
 local function ensure_content_ids()
-	if not c_cust_source then
-		c_cust_source = minetest.get_content_id("realistic_fluids:water_source")
-		c_cust_flowing = minetest.get_content_id("realistic_fluids:water_flowing")
-		c_def_source = minetest.get_content_id("default:water_source")
-		c_def_flowing = minetest.get_content_id("default:water_flowing")
+	if not c_water then
+		c_water = minetest.get_content_id("default:water_source")
+		c_water_flowing = minetest.get_content_id("default:water_flowing")
+		c_surge = minetest.get_content_id("realistic_fluids:surge_water")
 		c_air = minetest.get_content_id("air")
-		c_ignore = minetest.get_content_id("ignore")
 	end
 end
 
--- Update one chunk: compute Gerstner waves & run 3D Cellular Automata fluid simulation
+-- Update one chunk: render waves in ocean, and spawn surge water in direction of tide force.
 local function update_chunk(chunk_data, time, current_flood_rise)
 	ensure_content_ids()
 
@@ -222,9 +216,8 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 	local y_min = sea - 30
 	local y_max = math_floor(effective_sea + amp) + 6
 
-	-- Pad by 1 block horizontally to handle chunk boundary flow correctly
-	local p1 = {x = min_x - 1, y = y_min, z = min_z - 1}
-	local p2 = {x = min_x + CHUNK, y = y_max, z = min_z + CHUNK}
+	local p1 = {x = min_x, y = y_min, z = min_z}
+	local p2 = {x = min_x + CHUNK - 1, y = y_max, z = min_z + CHUNK - 1}
 
 	local vm = minetest.get_voxel_manip()
 	local emin, emax = vm:read_from_map(p1, p2)
@@ -232,241 +225,127 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 	local param2_data = vm:get_param2_data()
 	local va = VoxelArea:new{MinEdge = emin, MaxEdge = emax}
 
-	-- Helpers for volume mapping
-	local function node_to_volume(cid, p2)
-		if cid == c_cust_source or cid == c_def_source then
-			return 8
-		elseif cid == c_cust_flowing or cid == c_def_flowing then
-			local vol = 7 - (p2 % 8)
-			return vol < 1 and 1 or vol
-		else
-			return 0
-		end
-	end
+	local modified = false
+	local start_timer_list = {}
+	local start_timer_count = 0
 
-	local function volume_to_node(vol)
-		if vol >= 8 then
-			return c_cust_source, 0
-		elseif vol >= 1 then
-			return c_cust_flowing, 7 - math_floor(vol)
-		else
-			return c_air, 0
-		end
-	end
+	local force = realistic_fluids.force
 
-	-- Create and pre-initialize 3D grid for the padded region
-	local grid_V = {}
-	local grid_C = {}
-	for x = min_x - 1, min_x + CHUNK do
-		grid_V[x] = {}
-		grid_C[x] = {}
-		for z = min_z - 1, min_z + CHUNK do
-			grid_V[x][z] = {}
-			grid_C[x][z] = {}
-		end
-	end
-
-	-- Populate local 3D grid from VoxelManip data
-	for x = min_x - 1, min_x + CHUNK do
-		for z = min_z - 1, min_z + CHUNK do
-			for y = y_min, y_max do
-				if va:contains(x, y, z) then
-					local vi = va:index(x, y, z)
-					local cid = data[vi]
-					local p2 = param2_data[vi]
-					grid_C[x][z][y] = cid
-					grid_V[x][z][y] = node_to_volume(cid, p2)
-				else
-					-- Outside VoxelArea: treat as solid ignore
-					grid_C[x][z][y] = c_ignore
-					grid_V[x][z][y] = 0
-				end
-			end
-		end
-	end
-
-	-- Apply Ocean Boundary Force
-	-- Ocean columns are forced to match the Gerstner wave height to keep the ocean full
 	for lz = 0, CHUNK - 1 do
 		for lx = 0, CHUNK - 1 do
 			local idx = lz * CHUNK + lx + 1
 			local col = columns[idx]
-			if col and col.is_ocean then
+
+			if col then
 				local wx = min_x + lx
 				local wz = min_z + lz
 				local floor_y = col.floor_y
 
-				local wave_y, wave_rem = OceanWaves.get_surface(wx, wz, time, effective_sea, iters, amp)
-				wave_y = math_min(wave_y, y_max)
+				if col.is_ocean then
+					-- Render Gerstner waves in ocean columns
+					local wave_y, wave_remainder = OceanWaves.get_surface(
+						wx, wz, time, effective_sea, iters, amp
+					)
+					wave_y = math_min(wave_y, y_max)
 
-				-- Fill ocean water up to the wave surface
-				for y = floor_y + 1, wave_y do
-					grid_V[wx][wz][y] = 8
-					grid_C[wx][wz][y] = c_cust_source
-				end
-
-				-- Receding wave: clear any water above wave surface in ocean columns
-				for y = math_max(floor_y + 1, wave_y + 1), y_max do
-					local cid = grid_C[wx][wz][y]
-					if cid == c_cust_source or cid == c_cust_flowing or
-					   cid == c_def_source or cid == c_def_flowing then
-						grid_V[wx][wz][y] = 0
-						grid_C[wx][wz][y] = c_air
-					end
-				end
-			end
-		end
-	end
-
-	-- Cache permeability check
-	local function is_perm(x, y, z)
-		local cid = grid_C[x][z][y]
-		if cid == c_ignore then return false end
-		if cid == c_air or cid == c_cust_source or cid == c_cust_flowing or
-		   cid == c_def_source or cid == c_def_flowing then
-			return true
-		end
-		return get_permeability(cid) == "permeable"
-	end
-
-	-- 1. Gravity Flow (Downward)
-	-- Process bottom-to-top to let water cascade down realistically
-	for y = y_min + 1, y_max do
-		for x = min_x, min_x + CHUNK - 1 do
-			for z = min_z, min_z + CHUNK - 1 do
-				local v = grid_V[x][z][y]
-				if v > 0 then
-					local ny = y - 1
-					if is_perm(x, ny, z) then
-						local v_down = grid_V[x][z][ny]
-						if v_down < 8 then
-							local flow = math_min(v, 8 - v_down)
-							grid_V[x][z][y] = v - flow
-							grid_V[x][z][ny] = v_down + flow
-							
-							-- Update content class to register it as water
-							if grid_C[x][z][ny] ~= c_cust_source and grid_C[x][z][ny] ~= c_cust_flowing then
-								grid_C[x][z][ny] = c_cust_flowing
+					-- Fill water from terrain+1 up to wave surface
+					if wave_y > floor_y then
+						for y = floor_y + 1, wave_y do
+							if va:contains(wx, y, wz) then
+								local vi = va:index(wx, y, wz)
+								local existing = data[vi]
+								
+								-- Overwrite air, flowing water, surge water, or permeable nodes
+								if existing == c_air or existing == c_water_flowing or existing == c_surge or
+								   get_permeability(existing) == "permeable" then
+									
+									if y == wave_y then
+										local level = math_floor((1.0 - wave_remainder) * 7)
+										level = math_min(7, math_max(0, level))
+										if existing ~= c_water_flowing or param2_data[vi] ~= level then
+											data[vi] = c_water_flowing
+											param2_data[vi] = level
+											modified = true
+										end
+									else
+										if existing ~= c_water then
+											data[vi] = c_water
+											param2_data[vi] = 0
+											modified = true
+										end
+									end
+								end
 							end
-							v = v - flow
 						end
-					end
-				end
-			end
-		end
-	end
 
-	-- 2. Horizontal Pressure Equalization (Spreading)
-	-- Spread water to neighbors at the same Y level with less volume
-	local dirs = {
-		{x = 1, z = 0},
-		{x = -1, z = 0},
-		{x = 0, z = 1},
-		{x = 0, z = -1}
-	}
-
-	-- Alternate loop directions to eliminate directional bias
-	local x_start, x_end, x_step
-	local z_start, z_end, z_step
-
-	if tick_count % 4 == 0 then
-		x_start, x_end, x_step = min_x, min_x + CHUNK - 1, 1
-		z_start, z_end, z_step = min_z, min_z + CHUNK - 1, 1
-	elseif tick_count % 4 == 1 then
-		x_start, x_end, x_step = min_x + CHUNK - 1, min_x, -1
-		z_start, z_end, z_step = min_z + CHUNK - 1, min_z, -1
-	elseif tick_count % 4 == 2 then
-		x_start, x_end, x_step = min_x, min_x + CHUNK - 1, 1
-		z_start, z_end, z_step = min_z + CHUNK - 1, min_z, -1
-	else
-		x_start, x_end, x_step = min_x + CHUNK - 1, min_x, -1
-		z_start, z_end, z_step = min_z, min_z + CHUNK - 1, 1
-	end
-
-	for y = y_min, y_max do
-		for x = x_start, x_end, x_step do
-			for z = z_start, z_end, z_step do
-				local v = grid_V[x][z][y]
-				if v > 0 then
-					-- Find open neighbors with less water
-					local open_neighbors = {}
-					local k = 0
-					for i = 1, 4 do
-						local dx = dirs[i].x
-						local dz = dirs[i].z
-						local nx = x + dx
-						local nz = z + dz
-
-						-- Chunk border safety: check bounds and ignore blocks
-						if grid_C[nx] and grid_C[nx][nz] and grid_C[nx][nz][y] ~= c_ignore then
-							if is_perm(nx, y, nz) then
-								local vn = grid_V[nx][nz][y]
-								if vn < v then
-									k = k + 1
-									open_neighbors[k] = {x = nx, z = nz, vol = vn}
+						-- Clear any water above wave surface (receding wave)
+						for y = wave_y + 1, y_max do
+							if va:contains(wx, y, wz) then
+								local vi = va:index(wx, y, wz)
+								local existing = data[vi]
+								if existing == c_water or existing == c_water_flowing or existing == c_surge then
+									data[vi] = c_air
+									param2_data[vi] = 0
+									modified = true
+								elseif existing ~= c_air then
+									break -- hit solid ground above, stop
+								end
+							end
+						end
+					else
+						-- Wave surface is below seafloor: clear water above seafloor
+						for y = floor_y + 1, math_min(floor_y + 6, y_max) do
+							if va:contains(wx, y, wz) then
+								local vi = va:index(wx, y, wz)
+								local existing = data[vi]
+								if existing == c_water or existing == c_water_flowing or existing == c_surge then
+									data[vi] = c_air
+									param2_data[vi] = 0
+									modified = true
+								elseif existing ~= c_air then
+									break
 								end
 							end
 						end
 					end
 
-					if k > 0 then
-						-- Equalize volume
-						local sum = v
-						for i = 1, k do
-							sum = sum + open_neighbors[i].vol
-						end
+					-- Spawner / Generator logic: Push surge water onto land
+					if force and force.strength > 0 and (force.x ~= 0 or force.z ~= 0) then
+						local dx = force.x
+						local dz = force.z
+						local dest_x = wx + dx
+						local dest_z = wz + dz
+						local dest_y = wave_y
 
-						local target = math_floor(sum / (k + 1))
-						local rem = sum % (k + 1)
+						if va:contains(dest_x, dest_y, dest_z) then
+							local dest_vi = va:index(dest_x, dest_y, dest_z)
+							local dest_cid = data[dest_vi]
 
-						-- Assign target to current cell, distribute remainder
-						local my_new_vol = target
-						if rem > 0 then
-							my_new_vol = my_new_vol + 1
-							rem = rem - 1
-						end
-						grid_V[x][z][y] = my_new_vol
+							if dest_cid == c_air or get_permeability(dest_cid) == "permeable" then
+								-- Spawn surge water on flat shore
+								data[dest_vi] = c_surge
+								param2_data[dest_vi] = 0 -- full volume (param2=0 -> level 8)
+								modified = true
 
-						-- Distribute to neighbors
-						for i = 1, k do
-							local neigh = open_neighbors[i]
-							local n_new_vol = target
-							if rem > 0 then
-								n_new_vol = n_new_vol + 1
-								rem = rem - 1
+								start_timer_count = start_timer_count + 1
+								start_timer_list[start_timer_count] = {x = dest_x, y = dest_y, z = dest_z}
+							elseif dest_cid ~= c_water and dest_cid ~= c_water_flowing and dest_cid ~= c_surge then
+								-- Destination is solid cliff/shoreline: Pile up directly above ocean block
+								local above_y = wave_y + 1
+								if va:contains(wx, above_y, wz) then
+									local above_vi = va:index(wx, above_y, wz)
+									local above_cid = data[above_vi]
+
+									if above_cid == c_air or get_permeability(above_cid) == "permeable" then
+										data[above_vi] = c_surge
+										param2_data[above_vi] = 0 -- full volume
+										modified = true
+
+										start_timer_count = start_timer_count + 1
+										start_timer_list[start_timer_count] = {x = wx, y = above_y, z = wz}
+									end
+								end
 							end
-							grid_V[neigh.x][neigh.z][y] = n_new_vol
-							
-							if grid_C[neigh.x][neigh.z][y] ~= c_cust_source and grid_C[neigh.x][neigh.z][y] ~= c_cust_flowing then
-								grid_C[neigh.x][neigh.z][y] = c_cust_flowing
-							end
-						end
-					end
-				end
-			end
-		end
-	end
-
-	-- Write back to VoxelManip data arrays (including the 1-block pad)
-	local modified = false
-	for x = min_x - 1, min_x + CHUNK do
-		for z = min_z - 1, min_z + CHUNK do
-			for y = y_min, y_max do
-				if va:contains(x, y, z) then
-					local vi = va:index(x, y, z)
-					local old_cid = data[vi]
-					local vol = grid_V[x][z][y]
-					
-					-- Ensure we only overwrite air, water, or permeable nodes
-					local is_old_water = (old_cid == c_cust_source or old_cid == c_cust_flowing or
-					                      old_cid == c_def_source or old_cid == c_def_flowing)
-					
-					if is_old_water or (vol > 0 and (old_cid == c_air or get_permeability(old_cid) == "permeable")) then
-						local target_cid, target_param2 = volume_to_node(vol)
-						if old_cid ~= target_cid or param2_data[vi] ~= target_param2 then
-							data[vi] = target_cid
-							param2_data[vi] = target_param2
-							modified = true
 						end
 					end
 				end
@@ -479,6 +358,11 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 		vm:set_param2_data(param2_data)
 		vm:update_liquids()
 		vm:write_to_map(true)
+
+		-- Start node timers for the newly spawned surge water blocks
+		for i = 1, start_timer_count do
+			minetest.get_node_timer(start_timer_list[i]):start(0.2)
+		end
 	end
 end
 
@@ -490,7 +374,6 @@ minetest.register_globalstep(function(dtime)
 	if not settings.enabled then return end
 
 	global_time = global_time + dtime * settings.wave_speed
-	tick_count = tick_count + 1
 
 	-- Progressive flood: slowly raise the effective sea level
 	if settings.flood_enabled then
@@ -501,7 +384,6 @@ minetest.register_globalstep(function(dtime)
 	-- Export for buoyancy module
 	realistic_fluids.ocean_time = global_time
 	realistic_fluids.flood_rise = flood_rise
-	realistic_fluids.tick_count = tick_count
 
 	local num_chunks = #chunk_queue
 	if num_chunks == 0 then return end
