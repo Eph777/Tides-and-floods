@@ -132,163 +132,169 @@ minetest.register_abm({
 })
 
 -- ============================================================
--- WAVE ABM
+-- WAVE PROPAGATION ENGINE (Globalstep Queue)
 -- ============================================================
-minetest.register_abm({
-	name = "realistic_fluids:wave_abm",
-	nodenames = {"realistic_fluids:wave"},
-	interval = abm_short_delay,
-	chance = 1,
-	catch_up = false,
-	action = function(pos)
-		local sealevel = realistic_fluids.sealevel or 1
-		local cardinal_pos = {
-			{x=pos.x+1, y=pos.y, z=pos.z},
-			{x=pos.x-1, y=pos.y, z=pos.z},
-			{x=pos.x, y=pos.y, z=pos.z+1},
-			{x=pos.x, y=pos.y, z=pos.z-1}
-		}
+local wave_timer = 0
+local abm_short_delay = 0.05 -- Run 20 times per second for ultra-fluid movement!
 
-		local cardinal_node = {
-			get_node(cardinal_pos[1]).name,
-			get_node(cardinal_pos[2]).name,
-			get_node(cardinal_pos[3]).name,
-			get_node(cardinal_pos[4]).name
-		}
+minetest.register_globalstep(function(dtime)
+	wave_timer = wave_timer + dtime
+	if wave_timer < abm_short_delay then return end
+	wave_timer = 0
 
-		local cardinal_down_pos = {
-			{x=pos.x+1, y=pos.y-1, z=pos.z},
-			{x=pos.x-1, y=pos.y-1, z=pos.z},
-			{x=pos.x, y=pos.y-1, z=pos.z+1},
-			{x=pos.x, y=pos.y-1, z=pos.z-1}
-		}
+	local current_waves = realistic_fluids.active_waves or {}
+	realistic_fluids.active_waves = {}
 
-		local cardinal_down_node = {
-			get_node(cardinal_down_pos[1]).name,
-			get_node(cardinal_down_pos[2]).name,
-			get_node(cardinal_down_pos[3]).name,
-			get_node(cardinal_down_pos[4]).name
-		}
+	local sealevel = realistic_fluids.sealevel or 1
 
-		local edge_x = pos.x % 16
-		local edge_z = pos.z % 16
+	for hash, pos in pairs(current_waves) do
+		local node = get_node(pos)
+		if node.name == "realistic_fluids:wave" then
+			local cardinal_pos = {
+				{x=pos.x+1, y=pos.y, z=pos.z},
+				{x=pos.x-1, y=pos.y, z=pos.z},
+				{x=pos.x, y=pos.y, z=pos.z+1},
+				{x=pos.x, y=pos.y, z=pos.z-1}
+			}
 
-		-- TIDE GOES DOWN
-		if pos.y > sealevel then
-			minetest.set_node(pos, {name = "air"})
-			minetest.after(0.1, function()
+			local cardinal_node = {
+				get_node(cardinal_pos[1]).name,
+				get_node(cardinal_pos[2]).name,
+				get_node(cardinal_pos[3]).name,
+				get_node(cardinal_pos[4]).name
+			}
+
+			local cardinal_down_pos = {
+				{x=pos.x+1, y=pos.y-1, z=pos.z},
+				{x=pos.x-1, y=pos.y-1, z=pos.z},
+				{x=pos.x, y=pos.y-1, z=pos.z+1},
+				{x=pos.x, y=pos.y-1, z=pos.z-1}
+			}
+
+			local cardinal_down_node = {
+				get_node(cardinal_down_pos[1]).name,
+				get_node(cardinal_down_pos[2]).name,
+				get_node(cardinal_down_pos[3]).name,
+				get_node(cardinal_down_pos[4]).name
+			}
+
+			local edge_x = pos.x % 16
+			local edge_z = pos.z % 16
+
+			-- TIDE GOES DOWN
+			if pos.y > sealevel then
+				minetest.set_node(pos, {name = "air"})
+				
+				-- Spread wave to neighbors to recede
 				for i = 1, 4 do
 					if water_and_friends[cardinal_node[i]] and cardinal_node[i] ~= "realistic_fluids:wave" then
 						minetest.set_node(cardinal_pos[i], {name = "realistic_fluids:wave"})
 					end
 				end
-			end)
 
-			-- CHANGE NODES BELOW
-			if get_node({x=pos.x, y=pos.y-1, z=pos.z}).name == "realistic_fluids:seawater" then
-				if (pos.x % 16 == 0 or pos.x % 16 == 15) and (pos.z % 16 == 0 or pos.z % 16 == 15) then
-					minetest.set_node({x=pos.x, y=pos.y-1, z=pos.z}, {name = "realistic_fluids:offshore_water"})
-					return
-				end
-				for i = 1, 4 do
-					if water_or_air[cardinal_down_node[i]] == nil then
-						minetest.set_node({x=pos.x, y=pos.y-1, z=pos.z}, {name = "realistic_fluids:shorewater"})
-						return
+				-- CHANGE NODES BELOW
+				if get_node({x=pos.x, y=pos.y-1, z=pos.z}).name == "realistic_fluids:seawater" then
+					if (pos.x % 16 == 0 or pos.x % 16 == 15) and (pos.z % 16 == 0 or pos.z % 16 == 15) then
+						minetest.set_node({x=pos.x, y=pos.y-1, z=pos.z}, {name = "realistic_fluids:offshore_water"})
+					else
+						local shore_below = false
+						for i = 1, 4 do
+							if water_or_air[cardinal_down_node[i]] == nil then
+								minetest.set_node({x=pos.x, y=pos.y-1, z=pos.z}, {name = "realistic_fluids:shorewater"})
+								shore_below = true
+								break
+							end
+						end
+						if not shore_below then
+							minetest.set_node({x=pos.x, y=pos.y-1, z=pos.z}, {name = "realistic_fluids:seawater"})
+						end
 					end
 				end
-			end
 
-		-- TIDE GOES UP
-		elseif pos.y <= sealevel then
-			-- look for air around, set wave there, become seawater
-			for i = 1, 4 do
-				if realistic_fluids.can_it_flood(cardinal_node[i]) then
-					-- make things from float group rise with the tide
-					local float = minetest.get_item_group(cardinal_node[i], "float")
-					if float >= 1 then
-						local cardinal_pos_up = vector.add(cardinal_pos[i], vector.new(0, 1, 0))
-						local cardinal_node_up = get_node(cardinal_pos_up).name
-						if realistic_fluids.can_it_flood(cardinal_node_up) then
-							minetest.set_node(cardinal_pos[i], {name = tostring(cardinal_node_up)})
-							minetest.set_node(cardinal_pos_up, {name = cardinal_node[i]})
-						else
+			-- TIDE GOES UP
+			elseif pos.y <= sealevel then
+				-- look for floodable neighbors
+				for i = 1, 4 do
+					if realistic_fluids.can_it_flood(cardinal_node[i]) then
+						-- floatable logic
+						local float = minetest.get_item_group(cardinal_node[i], "float")
+						if float >= 1 then
+							local cardinal_pos_up = vector.add(cardinal_pos[i], vector.new(0, 1, 0))
+							local cardinal_node_up = get_node(cardinal_pos_up).name
+							if realistic_fluids.can_it_flood(cardinal_node_up) then
+								minetest.set_node(cardinal_pos[i], {name = tostring(cardinal_node_up)})
+								minetest.set_node(cardinal_pos_up, {name = cardinal_node[i]})
+							end
+						end
+
+						minetest.set_node(cardinal_pos[i], {name = "realistic_fluids:wave"})
+					end
+				end
+
+				-- Determine replacement for this current node
+				if (edge_x == 0 or edge_x == 15) and (edge_z == 0 or edge_z == 15) then
+					minetest.set_node(pos, {name = "realistic_fluids:offshore_water"})
+				else
+					local shore = false
+					for j = 1, 4 do
+						if water_or_air[cardinal_node[j]] == nil then
+							minetest.set_node(pos, {name = "realistic_fluids:shorewater"})
+							shore = true
+
+							-- Splash effects
+							if math.random(1, 3) == 1 then
+								minetest.sound_play("default_water_footstep", {
+									pos = pos,
+									gain = 0.08,
+									max_hear_distance = 12,
+								}, true)
+
+								minetest.add_particlespawner({
+									amount = 3,
+									time = 0.08,
+									minpos = {x = pos.x - 0.4, y = pos.y + 0.4, z = pos.z - 0.4},
+									maxpos = {x = pos.x + 0.4, y = pos.y + 0.6, z = pos.z + 0.4},
+									minvel = {x = -0.3, y = 0.4, z = -0.3},
+									maxvel = {x = 0.3, y = 1.0, z = 0.3},
+									minacc = {x = 0, y = -4.0, z = 0},
+									maxacc = {x = 0, y = -4.0, z = 0},
+									minexptime = 0.4,
+									maxexptime = 0.6,
+									minsize = 0.5,
+									maxsize = 1.2,
+									texture = "default_bubble.png^[colorize:#ffffff:200",
+									collisiondetection = true,
+								})
+							end
 							break
 						end
 					end
-
-					minetest.after(0.1, function()
-						minetest.set_node(cardinal_pos[i], {name = "realistic_fluids:wave"})
-						if (edge_x == 0 or edge_x == 15) and (edge_z == 0 or edge_z == 15) then
-							minetest.set_node({x=pos.x, y=pos.y, z=pos.z}, {name = "realistic_fluids:offshore_water"})
-						else
-							local shore = false
-							for j = 1, 4 do
-								if water_or_air[cardinal_node[j]] == nil then
-									minetest.set_node(pos, {name = "realistic_fluids:shorewater"})
-									shore = true
-
-									-- Premium Shore Wave Aesthetics: Splash Particles and Sound
-									if math.random(1, 4) == 1 then
-										minetest.sound_play("default_water_footstep", {
-											pos = pos,
-											gain = 0.1,
-											max_hear_distance = 12,
-										}, true)
-
-										minetest.add_particlespawner({
-											amount = 4,
-											time = 0.1,
-											minpos = {x = pos.x - 0.4, y = pos.y + 0.4, z = pos.z - 0.4},
-											maxpos = {x = pos.x + 0.4, y = pos.y + 0.6, z = pos.z + 0.4},
-											minvel = {x = -0.3, y = 0.5, z = -0.3},
-											maxvel = {x = 0.3, y = 1.2, z = 0.3},
-											minacc = {x = 0, y = -4.0, z = 0},
-											maxacc = {x = 0, y = -4.0, z = 0},
-											minexptime = 0.4,
-											maxexptime = 0.8,
-											minsize = 0.8,
-											maxsize = 1.5,
-											texture = "default_bubble.png^[colorize:#ffffff:200",
-											collisiondetection = true,
-										})
-									end
-									break
-								end
-							end
-							if not shore then
-								minetest.set_node(pos, {name = "realistic_fluids:seawater"})
-							end
-						end
-					end)
+					if not shore then
+						minetest.set_node(pos, {name = "realistic_fluids:seawater"})
+					end
 				end
-			end
 
-			for i = 1, 4 do
-				if water_or_air[cardinal_node[i]] == nil then
-					minetest.set_node(pos, {name = "realistic_fluids:shorewater"})
+				-- Clean below the surface
+				local node_below = get_node({x=pos.x, y=pos.y-1, z=pos.z}).name
+				if node_below ~= "realistic_fluids:seawater" and water_and_friends[node_below] then
+					minetest.set_node({x=pos.x, y=pos.y-1, z=pos.z}, {name = "realistic_fluids:seawater"})
 				end
-			end
 
-			-- CLEAN BELOW THE SURFACE AS TIDE GOES UP
-			local node_below = get_node({x=pos.x, y=pos.y-1, z=pos.z}).name
-			if node_below ~= "realistic_fluids:seawater" and water_and_friends[node_below] then
-				minetest.set_node({x=pos.x, y=pos.y-1, z=pos.z}, {name = "realistic_fluids:seawater"})
-			end
-
-			-- if surrounded by seawater, become seawater
-			local seawater = 0
-			for i = 1, 4 do
-				if water_and_friends[cardinal_node[i]] then
-					seawater = seawater + 1
+				-- if surrounded by seawater, become seawater
+				local seawater = 0
+				for i = 1, 4 do
+					if water_and_friends[cardinal_node[i]] then
+						seawater = seawater + 1
+					end
 				end
-			end
-			if seawater == 4 then
-				if (edge_x == 0 or edge_x == 15) and (edge_z == 0 or edge_z == 15) then
-					minetest.set_node({x=pos.x, y=pos.y, z=pos.z}, {name = "realistic_fluids:offshore_water"})
-				else
-					minetest.set_node({x=pos.x, y=pos.y, z=pos.z}, {name = "realistic_fluids:seawater"})
+				if seawater == 4 then
+					if (edge_x == 0 or edge_x == 15) and (edge_z == 0 or edge_z == 15) then
+						minetest.set_node(pos, {name = "realistic_fluids:offshore_water"})
+					else
+						minetest.set_node(pos, {name = "realistic_fluids:seawater"})
+					end
 				end
 			end
 		end
 	end
-})
+end)

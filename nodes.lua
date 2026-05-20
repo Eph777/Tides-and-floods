@@ -11,6 +11,14 @@ local function get_texture(base, color)
 	return base
 end
 
+-- Active waves propagation queue
+realistic_fluids.active_waves = {}
+
+function realistic_fluids.queue_wave(pos)
+	local hash = minetest.hash_node_position(pos)
+	realistic_fluids.active_waves[hash] = {x = pos.x, y = pos.y, z = pos.z}
+end
+
 -- ============================================================
 -- SEAWATER
 -- ============================================================
@@ -110,6 +118,9 @@ minetest.register_node("realistic_fluids:wave", {
 	floodable = true,
 	post_effect_color = {a = 103, r = 30, g = 60, b = 90},
 	groups = {water = 3, liquid = 3, not_in_creative_inventory = 0, cools_lava = 1},
+	on_construct = function(pos)
+		realistic_fluids.queue_wave(pos)
+	end,
 })
 
 -- ============================================================
