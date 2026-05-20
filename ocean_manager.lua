@@ -6,12 +6,12 @@ local storage = minetest.get_mod_storage()
 
 -- Load a setting from mod storage with a fallback default value
 local function load_setting(key, default)
-	local val = storage:get(key)
-	if val ~= nil then
+	local val = storage:get_string(key)
+	if val ~= "" then
 		if type(default) == "number" then
 			return tonumber(val) or default
 		elseif type(default) == "boolean" then
-			return val == "true" or (val == "" and default)
+			return val == "true"
 		else
 			return val
 		end
@@ -75,7 +75,7 @@ minetest.register_globalstep(function(dtime)
 			fractional_sealevel = min_h
 		end
 
-		storage:set("fractional_sealevel", tostring(fractional_sealevel))
+		storage:set_string("fractional_sealevel", tostring(fractional_sealevel))
 
 		local next_y = math.floor(fractional_sealevel)
 		if next_y ~= realistic_fluids.sealevel then
@@ -135,10 +135,10 @@ minetest.register_chatcommand("tides", {
 			local m = args[2]
 			if m == "manual" or m == "periodic" or m == "rising" then
 				realistic_fluids.tide_settings.mode = m
-				storage:set("mode", m)
+				storage:set_string("mode", m)
 				if m == "rising" then
 					fractional_sealevel = realistic_fluids.sealevel
-					storage:set("fractional_sealevel", tostring(fractional_sealevel))
+					storage:set_string("fractional_sealevel", tostring(fractional_sealevel))
 				end
 				return true, "Tide mode set to: " .. m
 			else
@@ -148,7 +148,7 @@ minetest.register_chatcommand("tides", {
 			local val = tonumber(args[2])
 			if val then
 				realistic_fluids.tide_settings.rising_speed = val
-				storage:set("rising_speed", tostring(val))
+				storage:set_string("rising_speed", tostring(val))
 				return true, "Tide rising speed set to: " .. val .. " nodes per minute"
 			else
 				return false, "Invalid speed value"
@@ -160,8 +160,8 @@ minetest.register_chatcommand("tides", {
 				if low > high then low, high = high, low end
 				realistic_fluids.tide_settings.tide_low = low
 				realistic_fluids.tide_settings.tide_high = high
-				storage:set("tide_low", tostring(low))
-				storage:set("tide_high", tostring(high))
+				storage:set_string("tide_low", tostring(low))
+				storage:set_string("tide_high", tostring(high))
 				return true, "Periodic tide range set to low=" .. low .. ", high=" .. high
 			else
 				return false, "Invalid range values: usage `/tides range <low> <high>`"
@@ -170,7 +170,7 @@ minetest.register_chatcommand("tides", {
 			local val = tonumber(args[2])
 			if val and val > 0 then
 				realistic_fluids.tide_settings.tide_period = val
-				storage:set("tide_period", tostring(val))
+				storage:set_string("tide_period", tostring(val))
 				return true, "Periodic tide period set to: " .. val .. " minutes"
 			else
 				return false, "Invalid period value (must be > 0)"
@@ -179,7 +179,7 @@ minetest.register_chatcommand("tides", {
 			local val = tonumber(args[2])
 			if val then
 				realistic_fluids.tide_settings.rising_max = val
-				storage:set("rising_max", tostring(val))
+				storage:set_string("rising_max", tostring(val))
 				return true, "Rising tide max height set to: " .. val
 			else
 				return false, "Invalid max height value"
@@ -188,7 +188,7 @@ minetest.register_chatcommand("tides", {
 			local val = tonumber(args[2])
 			if val then
 				realistic_fluids.tide_settings.rising_min = val
-				storage:set("rising_min", tostring(val))
+				storage:set_string("rising_min", tostring(val))
 				return true, "Rising tide min height set to: " .. val
 			else
 				return false, "Invalid min height value"
@@ -211,7 +211,7 @@ minetest.register_chatcommand("sealevel", {
 		else
 			realistic_fluids.set_sealevel(val)
 			fractional_sealevel = val
-			storage:set("fractional_sealevel", tostring(val))
+			storage:set_string("fractional_sealevel", tostring(val))
 			return true, "Sea level set to: " .. val
 		end
 	end
