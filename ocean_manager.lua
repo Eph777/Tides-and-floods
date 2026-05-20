@@ -28,6 +28,7 @@ local flood_rise = 0
 local permeability_cache = {}
 
 local function get_permeability(cid)
+	if cid == nil then return "solid" end  -- Safety: out-of-bounds VoxelManip read
 	if permeability_cache[cid] ~= nil then
 		return permeability_cache[cid]
 	end
@@ -227,9 +228,12 @@ local function inject_gerstner(chunk_data, time, current_flood_rise)
 
 			-- For each Y level from ground+1 up to wave surface, inject CA water
 			if wave_y > ground_y then
-				for y = ground_y + 1, math_min(wave_y, y_max) do
+				-- Clamp to actual VoxelManip bounds (emax.y), not our requested y_max
+				local top = math_min(wave_y, emax.y)
+				for y = math_max(ground_y + 1, emin.y), top do
 					local vi = va:index(wx, y, wz)
 					local existing = data[vi]
+					if existing == nil then goto next_y end  -- out of bounds safety
 					local perm = get_permeability(existing)
 
 					-- Only inject into air, cwater, or permeable vegetation
@@ -257,6 +261,7 @@ local function inject_gerstner(chunk_data, time, current_flood_rise)
 							modified = true
 						end
 					end
+					::next_y::
 				end
 			end
 
