@@ -1,405 +1,237 @@
 -- ocean_manager.lua
--- Ocean chunk manager: discovers ocean areas, applies Gerstner wave heights via VoxelManip
+-- Tide and flood controller for realistic_fluids: manages periodic tides, rising sea levels,
+-- and registers chat commands to control the ocean state.
 
-local settings = realistic_fluids.settings.ocean
-local OceanWaves = realistic_fluids.ocean_waves
+local storage = minetest.get_mod_storage()
 
--- Track active ocean regions as a set of chunk hashes
-local active_chunks = {}    -- hash -> {min_x, min_z, seafloor={}}
-local chunk_queue = {}       -- ordered list of hashes for round-robin
-local queue_index = 1
+-- Load a setting from mod storage with a fallback default value
+local function load_setting(key, default)
+	local val = storage:get(key)
+	if val ~= nil then
+		if type(default) == "number" then
+			return tonumber(val) or default
+		elseif type(default) == "boolean" then
+			return val == "true" or (val == "" and default)
+		else
+			return val
+		end
+	end
+	return default
+end
+
+-- Tide and flood settings
+realistic_fluids.tide_settings = {
+	mode = load_setting("mode", "manual"), -- manual, periodic, rising
+	rising_speed = load_setting("rising_speed", 2.0), -- nodes per minute
+	rising_max = load_setting("rising_max", 15),
+	rising_min = load_setting("rising_min", 1),
+	tide_low = load_setting("tide_low", 1),
+	tide_high = load_setting("tide_high", 5),
+	tide_period = load_setting("tide_period", 10.0), -- minutes
+}
+
+-- Current active sea level (integer)
+local base_sealevel = tonumber(storage:get_int("sealevel"))
+if not base_sealevel or base_sealevel == 0 then
+	base_sealevel = realistic_fluids.settings.ocean.sea_level or 1
+	storage:set_int("sealevel", base_sealevel)
+end
+realistic_fluids.sealevel = base_sealevel
+
+-- Fractional target level for smooth progression (rising mode)
+local fractional_sealevel = tonumber(storage:get("fractional_sealevel")) or base_sealevel
+
+-- Set the sea level and broadcast changes
+function realistic_fluids.set_sealevel(height)
+	height = math.floor(tonumber(height))
+	if height == realistic_fluids.sealevel then return end
+	realistic_fluids.sealevel = height
+	storage:set_int("sealevel", height)
+	minetest.chat_send_all("[realistic_fluids] Sea level set to: " .. height)
+end
+
+-- Global time tracker
 local global_time = 0
 
-local CHUNK = 16
-local math_floor = math.floor
-local math_min = math.min
-local math_max = math.max
+minetest.register_globalstep(function(dtime)
+	if not realistic_fluids.settings.ocean.enabled then return end
 
--- Flood state: current flood level above base sea_level
-local flood_rise = 0
+	global_time = global_time + dtime
+	-- Export global time for buoyancy
+	realistic_fluids.ocean_time = global_time * (realistic_fluids.settings.ocean.wave_speed or 1.0)
 
--- ============================================================
--- Override water node properties for faster lateral spreading
--- ============================================================
-minetest.register_on_mods_loaded(function()
-	local viscosity = settings.water_viscosity or 0
-	local range = settings.water_range or 8
+	local mode = realistic_fluids.tide_settings.mode
 
-	-- Override water_source
-	local ws = minetest.registered_nodes["default:water_source"]
-	if ws then
-		minetest.override_item("default:water_source", {
-			liquid_viscosity = viscosity,
-			liquid_range = range,
-		})
-	end
+	if mode == "rising" then
+		-- Rise speed in nodes per second
+		local speed_sec = (realistic_fluids.tide_settings.rising_speed or 2.0) / 60.0
+		local max_h = realistic_fluids.tide_settings.rising_max or 15
+		local min_h = realistic_fluids.tide_settings.rising_min or 1
 
-	-- Override water_flowing
-	local wf = minetest.registered_nodes["default:water_flowing"]
-	if wf then
-		minetest.override_item("default:water_flowing", {
-			liquid_viscosity = viscosity,
-			liquid_range = range,
-		})
-	end
+		fractional_sealevel = fractional_sealevel + speed_sec * dtime
+		if fractional_sealevel > max_h then
+			fractional_sealevel = max_h
+		elseif fractional_sealevel < min_h then
+			fractional_sealevel = min_h
+		end
 
-	minetest.log("action", "[realistic_fluids] Water viscosity=" .. viscosity .. " range=" .. range)
-end)
+		storage:set("fractional_sealevel", tostring(fractional_sealevel))
 
--- ============================================================
--- Chunk discovery
--- ============================================================
+		local next_y = math.floor(fractional_sealevel)
+		if next_y ~= realistic_fluids.sealevel then
+			realistic_fluids.set_sealevel(next_y)
+		end
 
-local function chunk_hash(cx, cz)
-	return cx .. "," .. cz
-end
+	elseif mode == "periodic" then
+		local low = realistic_fluids.tide_settings.tide_low or 1
+		local high = realistic_fluids.tide_settings.tide_high or 5
+		local period_sec = (realistic_fluids.tide_settings.tide_period or 10.0) * 60.0
 
-local function get_chunk_coords(pos)
-	return math_floor(pos.x / CHUNK) * CHUNK,
-	       math_floor(pos.z / CHUNK) * CHUNK
-end
+		if period_sec > 0 then
+			local amplitude = (high - low) / 2
+			local mid = (high + low) / 2
+			-- Sine wave oscillation
+			local angle = (2 * math.pi * global_time) / period_sec
+			local next_y = math.floor(mid + amplitude * math.sin(angle) + 0.5)
 
--- Cache: is a given content ID "permeable" to water?
--- Permeable = water can flow through/replace it (leaves, grass, flowers, saplings)
--- Tree trunks are walkable but water should flow PAST them (not replace them)
-local permeability_cache = {}  -- cid -> "solid_ground" | "permeable" | "tree_trunk" | nil
-
-local function get_permeability(cid)
-	if permeability_cache[cid] ~= nil then
-		return permeability_cache[cid]
-	end
-	local name = minetest.get_name_from_content_id(cid)
-	local def = minetest.registered_nodes[name]
-	if not def then
-		permeability_cache[cid] = "solid_ground"
-		return "solid_ground"
-	end
-	local groups = def.groups or {}
-	if groups.tree then
-		-- Tree trunks: water flows past but doesn't replace
-		permeability_cache[cid] = "tree_trunk"
-	elseif groups.leaves or groups.flora or groups.flower or groups.sapling
-	       or groups.snappy or groups.attached_node
-	       or not def.walkable then
-		-- Non-walkable vegetation: water replaces it
-		permeability_cache[cid] = "permeable"
-	else
-		-- Solid ground (dirt, stone, sand, etc.)
-		permeability_cache[cid] = "solid_ground"
-	end
-	return permeability_cache[cid]
-end
-
--- Scan a chunk column with VoxelManip to find the seafloor for each (x,z).
--- Looks THROUGH trees and vegetation to find the actual walkable ground.
-local function scan_chunk_terrain(min_x, min_z)
-	local sea = settings.sea_level
-	local flood_max = settings.flood_max or 8
-	local y_min = sea - 30
-	local y_max = sea + flood_max + 6
-
-	local p1 = {x = min_x, y = y_min, z = min_z}
-	local p2 = {x = min_x + CHUNK - 1, y = y_max, z = min_z + CHUNK - 1}
-
-	local vm = minetest.get_voxel_manip()
-	local emin, emax = vm:read_from_map(p1, p2)
-	local data = vm:get_data()
-	local va = VoxelArea:new{MinEdge = emin, MaxEdge = emax}
-
-	local c_water_source = minetest.get_content_id("default:water_source")
-	local c_water_flowing = minetest.get_content_id("default:water_flowing")
-	local c_air = minetest.get_content_id("air")
-	local c_ignore = minetest.get_content_id("ignore")
-
-	local columns = {}
-	local has_anything = false
-
-	for lz = 0, CHUNK - 1 do
-		for lx = 0, CHUNK - 1 do
-			local idx = lz * CHUNK + lx + 1
-			local floor_y = nil
-			local found_water = false
-			local land_surface_y = nil
-
-			-- Scan top-down, looking THROUGH trees and vegetation
-			for y = y_max, y_min, -1 do
-				local vi = va:index(min_x + lx, y, min_z + lz)
-				local cid = data[vi]
-
-				if cid == c_water_source or cid == c_water_flowing then
-					found_water = true
-				elseif cid == c_air or cid == c_ignore then
-					-- Keep scanning
-				elseif found_water then
-					-- Under water: check if this is real ground or vegetation
-					local perm = get_permeability(cid)
-					if perm == "solid_ground" then
-						floor_y = y
-						break
-					end
-					-- tree_trunk or permeable: keep scanning for real floor
-				else
-					-- No water above: check what this block is
-					local perm = get_permeability(cid)
-					if perm == "solid_ground" then
-						-- Actual ground surface
-						if y <= sea + flood_max + 2 then
-							land_surface_y = y
-						end
-						break
-					end
-					-- tree_trunk or permeable vegetation: skip, keep scanning
-				end
-			end
-
-			if found_water then
-				has_anything = true
-				columns[idx] = {
-					floor_y = floor_y or (y_min - 1),
-					is_ocean = true,
-				}
-			elseif land_surface_y and land_surface_y <= sea + flood_max + 2 then
-				has_anything = true
-				columns[idx] = {
-					floor_y = land_surface_y,
-					is_ocean = false,
-				}
-			else
-				columns[idx] = nil
+			if next_y ~= realistic_fluids.sealevel then
+				realistic_fluids.set_sealevel(next_y)
 			end
 		end
 	end
+end)
 
-	if has_anything then
-		return columns
+-- ============================================================
+-- Chat Commands
+-- ============================================================
+
+minetest.register_privilege("sealevel", "player can use /sealevel and /tides commands")
+
+-- /tides command: configure modes and settings
+minetest.register_chatcommand("tides", {
+	params = "status | mode <manual|periodic|rising> | speed <nodes_per_min> | range <low> <high> | period <minutes> | max <height> | min <height>",
+	description = "Configure realistic_fluids ocean tides and flooding",
+	privs = {sealevel = true},
+	func = function(name, param)
+		local args = {}
+		for word in param:gmatch("%S+") do
+			table.insert(args, word)
+		end
+
+		local sub = args[1]
+		if not sub or sub == "status" then
+			local s = realistic_fluids.tide_settings
+			local status_str = "\n[realistic_fluids Tides Status]:"
+				.. "\n- Mode: " .. tostring(s.mode)
+				.. "\n- Current sea level: " .. tostring(realistic_fluids.sealevel)
+				.. "\n- Rising Speed: " .. tostring(s.rising_speed) .. " nodes/min"
+				.. "\n- Rising Range: min=" .. tostring(s.rising_min) .. ", max=" .. tostring(s.rising_max)
+				.. "\n- Periodic Range: low=" .. tostring(s.tide_low) .. ", high=" .. tostring(s.tide_high)
+				.. "\n- Periodic Period: " .. tostring(s.tide_period) .. " min"
+			return true, status_str
+		end
+
+		if sub == "mode" then
+			local m = args[2]
+			if m == "manual" or m == "periodic" or m == "rising" then
+				realistic_fluids.tide_settings.mode = m
+				storage:set("mode", m)
+				if m == "rising" then
+					fractional_sealevel = realistic_fluids.sealevel
+					storage:set("fractional_sealevel", tostring(fractional_sealevel))
+				end
+				return true, "Tide mode set to: " .. m
+			else
+				return false, "Invalid mode: choose manual, periodic, or rising"
+			end
+		elseif sub == "speed" then
+			local val = tonumber(args[2])
+			if val then
+				realistic_fluids.tide_settings.rising_speed = val
+				storage:set("rising_speed", tostring(val))
+				return true, "Tide rising speed set to: " .. val .. " nodes per minute"
+			else
+				return false, "Invalid speed value"
+			end
+		elseif sub == "range" then
+			local low = tonumber(args[2])
+			local high = tonumber(args[3])
+			if low and high then
+				if low > high then low, high = high, low end
+				realistic_fluids.tide_settings.tide_low = low
+				realistic_fluids.tide_settings.tide_high = high
+				storage:set("tide_low", tostring(low))
+				storage:set("tide_high", tostring(high))
+				return true, "Periodic tide range set to low=" .. low .. ", high=" .. high
+			else
+				return false, "Invalid range values: usage `/tides range <low> <high>`"
+			end
+		elseif sub == "period" then
+			local val = tonumber(args[2])
+			if val and val > 0 then
+				realistic_fluids.tide_settings.tide_period = val
+				storage:set("tide_period", tostring(val))
+				return true, "Periodic tide period set to: " .. val .. " minutes"
+			else
+				return false, "Invalid period value (must be > 0)"
+			end
+		elseif sub == "max" then
+			local val = tonumber(args[2])
+			if val then
+				realistic_fluids.tide_settings.rising_max = val
+				storage:set("rising_max", tostring(val))
+				return true, "Rising tide max height set to: " .. val
+			else
+				return false, "Invalid max height value"
+			end
+		elseif sub == "min" then
+			local val = tonumber(args[2])
+			if val then
+				realistic_fluids.tide_settings.rising_min = val
+				storage:set("rising_min", tostring(val))
+				return true, "Rising tide min height set to: " .. val
+			else
+				return false, "Invalid min height value"
+			end
+		else
+			return false, "Unknown subcommand: choose status, mode, speed, range, period, min, max"
+		end
 	end
-	return nil
-end
+})
 
--- Register a chunk as active
-local function register_chunk(min_x, min_z)
-	local hash = chunk_hash(min_x, min_z)
-	if active_chunks[hash] then return end
-
-	local columns = scan_chunk_terrain(min_x, min_z)
-	if not columns then return end
-
-	active_chunks[hash] = {
-		min_x = min_x,
-		min_z = min_z,
-		columns = columns,
-	}
-	chunk_queue[#chunk_queue + 1] = hash
-end
-
--- Auto-discover ocean chunks when water blocks load
-minetest.register_lbm({
-	name = "realistic_fluids:discover_ocean",
-	nodenames = {"default:water_source"},
-	run_at_every_load = true,
-	action = function(pos, node)
-		if not settings.enabled then return end
-		local cx, cz = get_chunk_coords(pos)
-		register_chunk(cx, cz)
-	end,
+-- /sealevel command: set base sea level manually
+minetest.register_chatcommand("sealevel", {
+	params = "<height>",
+	description = "Set base sea level manually",
+	privs = {sealevel = true},
+	func = function(name, param)
+		local val = tonumber(param)
+		if not val then
+			return false, "Current sea level is: " .. tostring(realistic_fluids.sealevel)
+		else
+			realistic_fluids.set_sealevel(val)
+			fractional_sealevel = val
+			storage:set("fractional_sealevel", tostring(val))
+			return true, "Sea level set to: " .. val
+		end
+	end
 })
 
 -- ============================================================
--- Per-tick ocean update
+-- Backward compatibility metatable for tidesandfloods
 -- ============================================================
-
--- Content IDs (cached after first use)
-local c_water = nil
-local c_water_flowing = nil
-local c_air = nil
-
-local function ensure_content_ids()
-	if not c_water then
-		c_water = minetest.get_content_id("default:water_source")
-		c_water_flowing = minetest.get_content_id("default:water_flowing")
-		c_air = minetest.get_content_id("air")
-	end
-end
-
--- Update one chunk: compute Gerstner wave surface for ALL columns uniformly
--- Water naturally spreads wherever the wave surface exceeds the terrain.
-local function update_chunk(chunk_data, time, current_flood_rise)
-	ensure_content_ids()
-
-	local min_x = chunk_data.min_x
-	local min_z = chunk_data.min_z
-	local columns = chunk_data.columns
-	local sea = settings.sea_level
-	local iters = settings.wave_iterations
-	local amp = settings.wave_height
-
-	-- Effective sea level includes progressive flood rise
-	local effective_sea = sea + current_flood_rise
-
-	-- Determine vertical bounds for the VoxelManip
-	local y_min = sea - 30
-	local y_max = math_floor(effective_sea + amp) + 6
-
-	local p1 = {x = min_x, y = y_min, z = min_z}
-	local p2 = {x = min_x + CHUNK - 1, y = y_max, z = min_z + CHUNK - 1}
-
-	local vm = minetest.get_voxel_manip()
-	local emin, emax = vm:read_from_map(p1, p2)
-	local data = vm:get_data()
-	local param2_data = vm:get_param2_data()
-	local va = VoxelArea:new{MinEdge = emin, MaxEdge = emax}
-
-	local modified = false
-
-	for lz = 0, CHUNK - 1 do
-		for lx = 0, CHUNK - 1 do
-			local idx = lz * CHUNK + lx + 1
-			local col = columns[idx]
-
-			if col then
-				local wx = min_x + lx
-				local wz = min_z + lz
-				local floor_y = col.floor_y
-
-				-- Compute the Gerstner wave surface at this position
-				local wave_surface_y, wave_remainder = OceanWaves.get_surface(
-					wx, wz, time, effective_sea, iters, amp
-				)
-
-				-- Only place water if the wave surface is above the terrain
-				if wave_surface_y > floor_y then
-					local top_y = math_min(wave_surface_y, y_max)
-
-					-- Fill water from terrain+1 up to the wave surface
-					for y = floor_y + 1, top_y do
-						local vi = va:index(wx, y, wz)
-						local existing = data[vi]
-
-						if existing == c_air or existing == c_water or existing == c_water_flowing then
-							-- Open space: place water
-							if y == top_y then
-								local level = math_floor((1.0 - wave_remainder) * 7)
-								level = math_min(7, math_max(0, level))
-								if existing ~= c_water_flowing or param2_data[vi] ~= level then
-									data[vi] = c_water_flowing
-									param2_data[vi] = level
-									modified = true
-								end
-							else
-								if existing ~= c_water then
-									data[vi] = c_water
-									modified = true
-								end
-							end
-						else
-							-- Non-air block: check permeability
-							local perm = get_permeability(existing)
-							if perm == "permeable" then
-								-- Vegetation: replace with water (it gets submerged)
-								data[vi] = c_water
-								modified = true
-							elseif perm == "tree_trunk" then
-								-- Tree trunk: skip it, water flows AROUND it
-								-- Don't break — keep filling above
-							end
-							-- solid_ground: also skip (don't break, in case
-							-- there's air above from a gap in terrain)
-						end
-					end
-
-					-- Clear water above the wave surface (wave receding)
-					for y = top_y + 1, y_max do
-						local vi = va:index(wx, y, wz)
-						local existing = data[vi]
-						if existing == c_water or existing == c_water_flowing then
-							data[vi] = c_air
-							modified = true
-						elseif existing ~= c_air then
-							break  -- hit solid, stop
-						end
-					end
-				else
-					-- Wave surface is below terrain: clear any leftover water above terrain
-					for y = floor_y + 1, math_min(floor_y + 6, y_max) do
-						local vi = va:index(wx, y, wz)
-						local existing = data[vi]
-						if existing == c_water or existing == c_water_flowing then
-							data[vi] = c_air
-							modified = true
-						elseif existing ~= c_air then
-							break
-						end
-					end
-				end
-			end
+tidesandfloods = {}
+setmetatable(tidesandfloods, {
+	__index = function(t, k)
+		if k == "sealevel" then
+			return realistic_fluids.sealevel
+		elseif k == "water_level" then
+			return realistic_fluids.settings.ocean.sea_level
+		end
+	end,
+	__newindex = function(t, k, v)
+		if k == "sealevel" then
+			realistic_fluids.set_sealevel(v)
 		end
 	end
-
-	if modified then
-		vm:set_data(data)
-		vm:set_param2_data(param2_data)
-		vm:update_liquids()
-		vm:write_to_map(true)
-	end
-end
-
--- ============================================================
--- Main globalstep
--- ============================================================
-
-minetest.register_globalstep(function(dtime)
-	if not settings.enabled then return end
-
-	global_time = global_time + dtime * settings.wave_speed
-
-	-- Progressive flood: slowly raise the effective sea level
-	if settings.flood_enabled then
-		local rise_per_sec = (settings.flood_speed or 0.5) / 60.0
-		flood_rise = math_min(flood_rise + rise_per_sec * dtime, settings.flood_max or 8)
-	end
-
-	-- Export for buoyancy module
-	realistic_fluids.ocean_time = global_time
-	realistic_fluids.flood_rise = flood_rise
-
-	local num_chunks = #chunk_queue
-	if num_chunks == 0 then return end
-
-	-- Only process chunks near players
-	local players = minetest.get_connected_players()
-	if #players == 0 then return end
-
-	-- Build set of nearby chunk hashes
-	local nearby = {}
-	local radius = settings.sim_radius
-	for _, player in ipairs(players) do
-		local pos = player:get_pos()
-		local pcx = math_floor(pos.x / CHUNK) * CHUNK
-		local pcz = math_floor(pos.z / CHUNK) * CHUNK
-		local range = math_floor(radius / CHUNK)
-		for dz = -range, range do
-			for dx = -range, range do
-				nearby[chunk_hash(pcx + dx * CHUNK, pcz + dz * CHUNK)] = true
-			end
-		end
-	end
-
-	-- Round-robin update
-	local budget = settings.chunks_per_tick
-	local processed = 0
-
-	for i = 1, num_chunks do
-		if processed >= budget then break end
-
-		if queue_index > num_chunks then queue_index = 1 end
-		local hash = chunk_queue[queue_index]
-		queue_index = queue_index + 1
-
-		if nearby[hash] and active_chunks[hash] then
-			update_chunk(active_chunks[hash], global_time, flood_rise)
-			processed = processed + 1
-		end
-	end
-end)
-
-minetest.log("action", "[realistic_fluids] Ocean manager loaded.")
+})

@@ -46,6 +46,12 @@ realistic_fluids.settings = {
 
 		-- How far water flows from a source block (1-8, default is 8)
 		water_range = tonumber(minetest.settings:get("realistic_fluids_water_range")) or 8,
+
+		-- Whether to use colorized water blocks to debug tide stages (white/black/purple)
+		debug_colors = minetest.settings:get_bool("realistic_fluids_debug_colors", false),
+
+		-- Replace water in already generated mapblocks
+		fix_generated_water = minetest.settings:get_bool("realistic_fluids_fix_generated_water", true),
 	},
 
 	-- ========== Building Debris ==========

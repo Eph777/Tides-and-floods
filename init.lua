@@ -14,9 +14,13 @@ end
 
 -- Phase 1: Ocean Physics
 if realistic_fluids.settings.ocean.enabled then
+	dofile(modpath .. "/nodes.lua")
+	dofile(modpath .. "/voxelmanip.lua")
+	dofile(modpath .. "/lbm.lua")
+	dofile(modpath .. "/abm.lua")
 	realistic_fluids.ocean_waves = dofile(modpath .. "/ocean_waves.lua")
 	realistic_fluids.ocean_time = 0
-	dofile(modpath .. "/ocean_manager.lua")  -- Chunk management + VoxelManip updates
+	dofile(modpath .. "/ocean_manager.lua")  -- Tide controller & storage management
 	dofile(modpath .. "/ocean_buoyancy.lua") -- Entity bobbing + splash effects
 end
 
