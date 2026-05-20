@@ -1,6 +1,6 @@
 -- ocean_manager.lua
 -- Ocean chunk manager: discovers ocean areas, applies Gerstner wave heights,
--- and spawns/piles surge_water_moving nodes onto the coastline when wind/tides push.
+-- and spawns/piles surge_moving nodes onto the coastline when wind/tides push.
 
 local settings = realistic_fluids.settings.ocean
 local OceanWaves = realistic_fluids.ocean_waves
@@ -81,8 +81,9 @@ local function scan_chunk_terrain(min_x, min_z)
 
 	local c_water_source = minetest.get_content_id("default:water_source")
 	local c_water_flowing = minetest.get_content_id("default:water_flowing")
-	local c_cust_source = minetest.get_content_id("realistic_fluids:surge_water")
-	local c_cust_moving = minetest.get_content_id("realistic_fluids:surge_water_moving")
+	local c_cust_source = minetest.get_content_id("realistic_fluids:surge_source")
+	local c_cust_flowing = minetest.get_content_id("realistic_fluids:surge_flowing")
+	local c_cust_moving = minetest.get_content_id("realistic_fluids:surge_moving")
 	local c_air = minetest.get_content_id("air")
 	local c_ignore = minetest.get_content_id("ignore")
 
@@ -102,7 +103,8 @@ local function scan_chunk_terrain(min_x, min_z)
 				local cid = data[vi]
 
 				if cid == c_water_source or cid == c_water_flowing or
-				   cid == c_cust_source or cid == c_cust_moving then
+				   cid == c_cust_source or cid == c_cust_flowing or
+				   cid == c_cust_moving then
 					found_water = true
 				elseif cid == c_air or cid == c_ignore then
 					-- Keep scanning
@@ -171,7 +173,12 @@ end
 -- Auto-discover ocean chunks when water blocks load
 minetest.register_lbm({
 	name = "realistic_fluids:discover_ocean",
-	nodenames = {"default:water_source", "realistic_fluids:surge_water", "realistic_fluids:surge_water_moving"},
+	nodenames = {
+		"default:water_source",
+		"realistic_fluids:surge_source",
+		"realistic_fluids:surge_flowing",
+		"realistic_fluids:surge_moving"
+	},
 	run_at_every_load = true,
 	action = function(pos, node)
 		if not settings.enabled then return end
@@ -188,6 +195,7 @@ minetest.register_lbm({
 local c_water = nil
 local c_water_flowing = nil
 local c_surge = nil
+local c_surge_flowing = nil
 local c_surge_moving = nil
 local c_air = nil
 
@@ -195,8 +203,9 @@ local function ensure_content_ids()
 	if not c_water then
 		c_water = minetest.get_content_id("default:water_source")
 		c_water_flowing = minetest.get_content_id("default:water_flowing")
-		c_surge = minetest.get_content_id("realistic_fluids:surge_water")
-		c_surge_moving = minetest.get_content_id("realistic_fluids:surge_water_moving")
+		c_surge = minetest.get_content_id("realistic_fluids:surge_source")
+		c_surge_flowing = minetest.get_content_id("realistic_fluids:surge_flowing")
+		c_surge_moving = minetest.get_content_id("realistic_fluids:surge_moving")
 		c_air = minetest.get_content_id("air")
 	end
 end
@@ -259,7 +268,8 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 								local existing = data[vi]
 								
 								-- Overwrite air, flowing water, surge water, or permeable nodes
-								if existing == c_air or existing == c_water_flowing or existing == c_surge or
+								if existing == c_air or existing == c_water_flowing or
+								   existing == c_surge or existing == c_surge_flowing or
 								   existing == c_surge_moving or get_permeability(existing) == "permeable" then
 									
 									if y == wave_y then
@@ -287,7 +297,8 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 								local vi = va:index(wx, y, wz)
 								local existing = data[vi]
 								if existing == c_water or existing == c_water_flowing or
-								   existing == c_surge or existing == c_surge_moving then
+								   existing == c_surge or existing == c_surge_flowing or
+								   existing == c_surge_moving then
 									data[vi] = c_air
 									param2_data[vi] = 0
 									modified = true
@@ -303,7 +314,8 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 								local vi = va:index(wx, y, wz)
 								local existing = data[vi]
 								if existing == c_water or existing == c_water_flowing or
-								   existing == c_surge or existing == c_surge_moving then
+								   existing == c_surge or existing == c_surge_flowing or
+								   existing == c_surge_moving then
 									data[vi] = c_air
 									param2_data[vi] = 0
 									modified = true
@@ -335,7 +347,8 @@ local function update_chunk(chunk_data, time, current_flood_rise)
 								start_timer_count = start_timer_count + 1
 								start_timer_list[start_timer_count] = {x = dest_x, y = dest_y, z = dest_z}
 							elseif dest_cid ~= c_water and dest_cid ~= c_water_flowing and
-							       dest_cid ~= c_surge and dest_cid ~= c_surge_moving then
+							       dest_cid ~= c_surge and dest_cid ~= c_surge_flowing and
+							       dest_cid ~= c_surge_moving then
 								-- Destination is solid cliff/shoreline: Pile up directly above ocean block
 								local above_y = wave_y + 1
 								if va:contains(wx, above_y, wz) then

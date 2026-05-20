@@ -1,12 +1,47 @@
 -- nodes.lua
--- Custom surge water nodes (visible and moving/invisible) with local Node Timer logic.
+-- Custom surge water nodes (surge_source, surge_flowing, and surge_moving/invisible)
+-- implements Cellular Automata timer logic and state transitions.
 
 local function is_permeable(name)
 	if name == "air" then return true end
 	if name == "ignore" then return false end
 	local def = minetest.registered_nodes[name]
 	-- Permeable if it is non-walkable vegetation or air
-	return def and not def.walkable and name ~= "default:water_source" and name ~= "default:water_flowing"
+	return def and not def.walkable and
+	       name ~= "default:water_source" and
+	       name ~= "default:water_flowing" and
+	       name ~= "realistic_fluids:surge_source" and
+	       name ~= "realistic_fluids:surge_flowing" and
+	       name ~= "realistic_fluids:surge_moving"
+end
+
+local function get_node_volume(node)
+	if node.name == "realistic_fluids:surge_source" then
+		return 8
+	elseif node.name == "realistic_fluids:surge_flowing" then
+		return 7 - (node.param2 % 8)
+	elseif node.name == "realistic_fluids:surge_moving" then
+		return 8 - (node.param2 % 8)
+	else
+		return 0
+	end
+end
+
+local function get_node_for_volume(vol, is_moving)
+	if vol <= 0 then
+		return "air", 0
+	end
+	if is_moving then
+		-- Invisible moving node: param2 represents 8 - volume
+		return "realistic_fluids:surge_moving", 8 - vol
+	end
+	if vol >= 8 then
+		-- Visible source node
+		return "realistic_fluids:surge_source", 0
+	else
+		-- Visible flowing node: param2 is 7 - volume for standard flowing liquid rendering
+		return "realistic_fluids:surge_flowing", 7 - vol
+	end
 end
 
 -- Shared Cellular Automata simulation logic
@@ -14,8 +49,7 @@ local function run_ca(pos, node_name)
 	local node = minetest.get_node(pos)
 	if node.name ~= node_name then return false end
 
-	local param2 = node.param2
-	local self_vol = 8 - (param2 % 8)
+	local self_vol = get_node_volume(node)
 	if self_vol <= 0 then
 		minetest.set_node(pos, {name = "air"})
 		return false
@@ -24,19 +58,23 @@ local function run_ca(pos, node_name)
 	-- Rule 2: Gravity (Downward Flow)
 	local down_pos = {x = pos.x, y = pos.y - 1, z = pos.z}
 	local down_node = minetest.get_node(down_pos)
+	local is_down_surge = (down_node.name == "realistic_fluids:surge_source" or
+	                       down_node.name == "realistic_fluids:surge_flowing" or
+	                       down_node.name == "realistic_fluids:surge_moving")
 	
-	if is_permeable(down_node.name) or down_node.name == "realistic_fluids:surge_water" or down_node.name == "realistic_fluids:surge_water_moving" then
-		if down_node.name == "realistic_fluids:surge_water" or down_node.name == "realistic_fluids:surge_water_moving" then
-			local down_vol = 8 - (down_node.param2 % 8)
+	if is_permeable(down_node.name) or is_down_surge then
+		if is_down_surge then
+			local down_vol = get_node_volume(down_node)
 			local space = 8 - down_vol
 			if space > 0 then
 				local flow = math.min(self_vol, space)
 				local new_down_vol = down_vol + flow
 				self_vol = self_vol - flow
 				
+				local target_name, target_param2 = get_node_for_volume(new_down_vol, down_node.name == "realistic_fluids:surge_moving")
 				minetest.set_node(down_pos, {
-					name = down_node.name, -- keep its visibility state
-					param2 = 8 - new_down_vol
+					name = target_name,
+					param2 = target_param2
 				})
 				minetest.get_node_timer(down_pos):start(0.1)
 				
@@ -47,9 +85,10 @@ local function run_ca(pos, node_name)
 			end
 		else
 			-- Fall completely as moving/invisible
+			local target_name, target_param2 = get_node_for_volume(self_vol, true)
 			minetest.set_node(down_pos, {
-				name = "realistic_fluids:surge_water_moving",
-				param2 = param2
+				name = target_name,
+				param2 = target_param2
 			})
 			minetest.get_node_timer(down_pos):start(0.1)
 			minetest.set_node(pos, {name = "air"})
@@ -67,30 +106,35 @@ local function run_ca(pos, node_name)
 		
 		local dest_pos = {x = pos.x + dx, y = pos.y, z = pos.z + dz}
 		local dest_node = minetest.get_node(dest_pos)
+		local is_dest_surge = (dest_node.name == "realistic_fluids:surge_source" or
+		                       dest_node.name == "realistic_fluids:surge_flowing" or
+		                       dest_node.name == "realistic_fluids:surge_moving")
 
-		if is_permeable(dest_node.name) or dest_node.name == "realistic_fluids:surge_water" or dest_node.name == "realistic_fluids:surge_water_moving" then
+		if is_permeable(dest_node.name) or is_dest_surge then
 			-- Rule 3: Force Push (Move forward as moving/invisible)
 			local flow = math.max(1, math.floor(self_vol * force.strength * 0.8))
 			if flow > self_vol then flow = self_vol end
 			
-			if dest_node.name == "realistic_fluids:surge_water" or dest_node.name == "realistic_fluids:surge_water_moving" then
-				local dest_vol = 8 - (dest_node.param2 % 8)
+			if is_dest_surge then
+				local dest_vol = get_node_volume(dest_node)
 				local space = 8 - dest_vol
 				local actual_flow = math.min(flow, space)
 				if actual_flow > 0 then
 					self_vol = self_vol - actual_flow
+					local target_name, target_param2 = get_node_for_volume(dest_vol + actual_flow, true)
 					minetest.set_node(dest_pos, {
-						name = "realistic_fluids:surge_water_moving",
-						param2 = 8 - (dest_vol + actual_flow)
+						name = target_name,
+						param2 = target_param2
 					})
 					minetest.get_node_timer(dest_pos):start(0.1)
 					moved = true
 				end
 			else
 				self_vol = self_vol - flow
+				local target_name, target_param2 = get_node_for_volume(flow, true)
 				minetest.set_node(dest_pos, {
-					name = "realistic_fluids:surge_water_moving",
-					param2 = 8 - flow
+					name = target_name,
+					param2 = target_param2
 				})
 				minetest.get_node_timer(dest_pos):start(0.1)
 				moved = true
@@ -104,9 +148,10 @@ local function run_ca(pos, node_name)
 				local pile_vol = math.max(1, math.floor(self_vol / 2))
 				self_vol = self_vol - pile_vol
 				
+				local target_name, target_param2 = get_node_for_volume(pile_vol, true)
 				minetest.set_node(above_pos, {
-					name = "realistic_fluids:surge_water_moving",
-					param2 = 8 - pile_vol
+					name = target_name,
+					param2 = target_param2
 				})
 				minetest.get_node_timer(above_pos):start(0.1)
 				moved = true
@@ -125,11 +170,14 @@ local function run_ca(pos, node_name)
 			local d = dirs[i]
 			local n_pos = {x = pos.x + d[1], y = pos.y, z = pos.z + d[2]}
 			local n_node = minetest.get_node(n_pos)
+			local is_n_surge = (n_node.name == "realistic_fluids:surge_source" or
+			                    n_node.name == "realistic_fluids:surge_flowing" or
+			                    n_node.name == "realistic_fluids:surge_moving")
 			
-			if is_permeable(n_node.name) or n_node.name == "realistic_fluids:surge_water" or n_node.name == "realistic_fluids:surge_water_moving" then
+			if is_permeable(n_node.name) or is_n_surge then
 				local n_vol = 0
-				if n_node.name == "realistic_fluids:surge_water" or n_node.name == "realistic_fluids:surge_water_moving" then
-					n_vol = 8 - (n_node.param2 % 8)
+				if is_n_surge then
+					n_vol = get_node_volume(n_node)
 				end
 				
 				if n_vol < self_vol then
@@ -159,9 +207,10 @@ local function run_ca(pos, node_name)
 				
 				if n_vol > 0 then
 					-- Horizontal spreading represents pooling (sticking), so spawn as visible
+					local target_name, target_param2 = get_node_for_volume(n_vol, false)
 					minetest.set_node(targets[i].pos, {
-						name = "realistic_fluids:surge_water",
-						param2 = 8 - n_vol
+						name = target_name,
+						param2 = target_param2
 					})
 					minetest.get_node_timer(targets[i].pos):start(0.1)
 				else
@@ -184,24 +233,68 @@ local function run_ca(pos, node_name)
 		return false
 	end
 
-	-- Sticking / Visibility logic:
-	-- If it was moving and continues to move/spread, keep it invisible.
-	-- If it did not move/spread in this tick, it has "stuck" (settled) -> make it visible!
-	local next_name = "realistic_fluids:surge_water"
-	if moved and node_name == "realistic_fluids:surge_water_moving" then
-		next_name = "realistic_fluids:surge_water_moving"
+	-- Determine settled visibility state:
+	-- If it actively moved and was invisible/moving, keep it moving (invisible).
+	-- Otherwise, if it did not move/spread in this tick, it has "stuck" (settled) -> make it visible!
+	local is_moving_state = false
+	if moved and (node_name == "realistic_fluids:surge_moving") then
+		is_moving_state = true
 	end
 
+	local target_name, target_param2 = get_node_for_volume(self_vol, is_moving_state)
 	minetest.set_node(pos, {
-		name = next_name,
-		param2 = 8 - self_vol
+		name = target_name,
+		param2 = target_param2
 	})
 	return true
 end
 
--- Register VISIBLE surge water
-minetest.register_node("realistic_fluids:surge_water", {
-	description = "Surge Water",
+-- Register VISIBLE surge source
+minetest.register_node("realistic_fluids:surge_source", {
+	description = "Surge Water Source",
+	drawtype = "liquid",
+	tiles = {
+		{
+			name = "default_water_source_animated.png",
+			backface_culling = false,
+			animation = {
+				type = "vertical_frames",
+				aspect_w = 16,
+				aspect_h = 16,
+				length = 3.0,
+			},
+		},
+	},
+	alpha = 191,
+	paramtype = "light",
+	walkable = false,
+	pointable = false,
+	diggable = false,
+	buildable_to = true,
+	is_ground_content = false,
+	drop = "",
+	drowning = 1,
+	liquidtype = "source",
+	liquid_alternative_source = "realistic_fluids:surge_source",
+	liquid_alternative_flowing = "realistic_fluids:surge_flowing",
+	liquid_viscosity = 1,
+	liquid_range = 0,
+	liquid_renewable = false,
+	post_effect_color = {a = 103, r = 30, g = 60, b = 90},
+	groups = {water = 3, liquid = 3, cools_lava = 1, not_in_creative_inventory = 1},
+
+	on_construct = function(pos)
+		minetest.get_node_timer(pos):start(0.1)
+	end,
+
+	on_timer = function(pos, elapsed)
+		return run_ca(pos, "realistic_fluids:surge_source")
+	end,
+})
+
+-- Register VISIBLE surge flowing
+minetest.register_node("realistic_fluids:surge_flowing", {
+	description = "Flowing Surge Water",
 	drawtype = "flowingliquid",
 	tiles = {"default_water.png"},
 	special_tiles = {
@@ -236,9 +329,9 @@ minetest.register_node("realistic_fluids:surge_water", {
 	is_ground_content = false,
 	drop = "",
 	drowning = 1,
-	liquidtype = "source",
-	liquid_alternative_source = "realistic_fluids:surge_water",
-	liquid_alternative_flowing = "realistic_fluids:surge_water",
+	liquidtype = "flowing",
+	liquid_alternative_source = "realistic_fluids:surge_source",
+	liquid_alternative_flowing = "realistic_fluids:surge_flowing",
 	liquid_viscosity = 1,
 	liquid_range = 0,
 	liquid_renewable = false,
@@ -250,12 +343,12 @@ minetest.register_node("realistic_fluids:surge_water", {
 	end,
 
 	on_timer = function(pos, elapsed)
-		return run_ca(pos, "realistic_fluids:surge_water")
+		return run_ca(pos, "realistic_fluids:surge_flowing")
 	end,
 })
 
 -- Register MOVING/INVISIBLE surge water
-minetest.register_node("realistic_fluids:surge_water_moving", {
+minetest.register_node("realistic_fluids:surge_moving", {
 	description = "Moving Surge Water (Invisible)",
 	drawtype = "airlike",
 	paramtype = "light",
@@ -268,8 +361,8 @@ minetest.register_node("realistic_fluids:surge_water_moving", {
 	drop = "",
 	drowning = 1,
 	liquidtype = "source",
-	liquid_alternative_source = "realistic_fluids:surge_water_moving",
-	liquid_alternative_flowing = "realistic_fluids:surge_water_moving",
+	liquid_alternative_source = "realistic_fluids:surge_moving",
+	liquid_alternative_flowing = "realistic_fluids:surge_moving",
 	liquid_viscosity = 1,
 	liquid_range = 0,
 	liquid_renewable = false,
@@ -281,6 +374,6 @@ minetest.register_node("realistic_fluids:surge_water_moving", {
 	end,
 
 	on_timer = function(pos, elapsed)
-		return run_ca(pos, "realistic_fluids:surge_water_moving")
+		return run_ca(pos, "realistic_fluids:surge_moving")
 	end,
 })
