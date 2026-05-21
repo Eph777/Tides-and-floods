@@ -24,6 +24,11 @@ if realistic_fluids.settings.ocean.enabled then
 	dofile(modpath .. "/ocean_buoyancy.lua") -- Entity bobbing + splash effects
 end
 
+-- Phase 1.5: Climate Integration (requires climate_api mod)
+if realistic_fluids.settings.ocean.enabled and minetest.get_modpath("climate_api") then
+	dofile(modpath .. "/climate_integration.lua")
+end
+
 -- Phase 2: Building Debris
 if realistic_fluids.settings.debris.enabled then
 	dofile(modpath .. "/debris_fragments.lua")  -- Debris entity definition
