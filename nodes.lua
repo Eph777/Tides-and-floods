@@ -132,7 +132,7 @@ minetest.register_node("realistic_fluids:shorewater", {
 	waving = 3,
 	tiles = {
 		{
-			name = get_texture("default_water_source_animated.png", "#fff:100"),
+			name = "default_water_source_animated.png^[colorize:#fff:100",
 			backface_culling = false,
 			animation = {
 				type = "vertical_frames",
@@ -142,7 +142,7 @@ minetest.register_node("realistic_fluids:shorewater", {
 			},
 		},
 		{
-			name = get_texture("default_water_source_animated.png", "#fff:100"),
+			name = "default_water_source_animated.png^[colorize:#fff:100",
 			backface_culling = false,
 			animation = {
 				type = "vertical_frames",
