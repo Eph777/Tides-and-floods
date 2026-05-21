@@ -98,7 +98,7 @@ local function apply_flood_environment()
 
 	-- Strong wind for storm effects
 	-- Wind is a {x, z} vector; set strong gusts
-	climate_mod.forced_enviroment.wind = {x = 4, z = 3}
+	climate_mod.forced_enviroment.wind = {x = 4, y = 0, z = 3}
 end
 
 -- Clear all environment overrides
