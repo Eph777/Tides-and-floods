@@ -262,7 +262,7 @@ minetest.register_globalstep(function(dtime)
 									maxexptime = 0.6,
 									minsize = 0.5,
 									maxsize = 1.2,
-									texture = "default_bubble.png^[colorize:#ffffff:200",
+									texture = "bubble.png^[colorize:#ffffff:200",
 									collisiondetection = true,
 								})
 							end
