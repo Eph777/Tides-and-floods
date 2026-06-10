@@ -14,10 +14,19 @@ end
 
 -- Phase 1: Ocean Physics
 if realistic_fluids.settings.ocean.enabled then
+	dofile(modpath .. "/nodes.lua")
+	dofile(modpath .. "/voxelmanip.lua")
+	dofile(modpath .. "/lbm.lua")
+	dofile(modpath .. "/abm.lua")
 	realistic_fluids.ocean_waves = dofile(modpath .. "/ocean_waves.lua")
 	realistic_fluids.ocean_time = 0
-	dofile(modpath .. "/ocean_manager.lua")  -- Chunk management + VoxelManip updates
+	dofile(modpath .. "/ocean_manager.lua")  -- Tide controller & storage management
 	dofile(modpath .. "/ocean_buoyancy.lua") -- Entity bobbing + splash effects
+end
+
+-- Phase 1.5: Climate Integration (requires climate_api mod)
+if realistic_fluids.settings.ocean.enabled and minetest.get_modpath("climate_api") then
+	dofile(modpath .. "/climate_integration.lua")
 end
 
 -- Phase 2: Building Debris

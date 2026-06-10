@@ -8,6 +8,26 @@ local math_max = math.max
 local math_min = math.min
 local math_random = math.random
 
+-- Helper to determine if a position is actually in or touching a water node
+local function is_in_water(pos)
+	-- Check feet/center
+	local node_feet = minetest.get_node(pos).name
+	if minetest.get_item_group(node_feet, "water") > 0 then
+		return true
+	end
+	-- Check slightly below (in case player/entity is just touching the surface)
+	local node_below = minetest.get_node({x = pos.x, y = pos.y - 0.5, z = pos.z}).name
+	if minetest.get_item_group(node_below, "water") > 0 then
+		return true
+	end
+	-- Check slightly above (in case player is submerged deeper)
+	local node_above = minetest.get_node({x = pos.x, y = pos.y + 1.0, z = pos.z}).name
+	if minetest.get_item_group(node_above, "water") > 0 then
+		return true
+	end
+	return false
+end
+
 -- ============================================================
 -- Player and Entity Buoyancy
 -- ============================================================
@@ -16,8 +36,7 @@ minetest.register_globalstep(function(dtime)
 	if not settings.enabled then return end
 
 	local time = realistic_fluids.ocean_time or 0
-	local flood_rise = realistic_fluids.flood_rise or 0
-	local sea = settings.sea_level + flood_rise
+	local sea = realistic_fluids.sealevel or settings.sea_level or 1
 	local iters = settings.wave_iterations
 	local amp = settings.wave_height
 	local buoy_force = settings.buoyancy_force
@@ -38,18 +57,20 @@ minetest.register_globalstep(function(dtime)
 		local depth = wave_y - feet_y  -- positive = submerged
 
 		if depth > 0.1 then
-			-- Buoyancy: push upward proportional to submersion
-			local vy = math_min(depth * buoy_force * dtime, 4.0)
+			if is_in_water(pos) then
+				-- Buoyancy: push upward proportional to submersion
+				local vy = math_min(depth * buoy_force * dtime, 4.0)
 
-			-- Also apply horizontal flow from the wave
-			local vx, vz = OceanWaves.get_velocity(pos.x, pos.z, time, iters, amp)
-			local flow_scale = 1.5 * dtime
+				-- Also apply horizontal flow from the wave
+				local vx, vz = OceanWaves.get_velocity(pos.x, pos.z, time, iters, amp)
+				local flow_scale = 1.5 * dtime
 
-			player:add_velocity({
-				x = vx * flow_scale,
-				y = vy,
-				z = vz * flow_scale,
-			})
+				player:add_velocity({
+					x = vx * flow_scale,
+					y = vy,
+					z = vz * flow_scale,
+				})
+			end
 		end
 
 		::continue_player::
@@ -68,16 +89,18 @@ minetest.register_globalstep(function(dtime)
 		local depth = wave_y - pos.y
 
 		if depth > 0.0 then
-			-- Strong buoyancy for items/boats
-			local vy = math_min(depth * buoy_force * 1.5 * dtime, 6.0)
-			local vx, vz = OceanWaves.get_velocity(pos.x, pos.z, time, iters, amp)
-			local flow_scale = 2.0 * dtime
+			if is_in_water(pos) then
+				-- Strong buoyancy for items/boats
+				local vy = math_min(depth * buoy_force * 1.5 * dtime, 6.0)
+				local vx, vz = OceanWaves.get_velocity(pos.x, pos.z, time, iters, amp)
+				local flow_scale = 2.0 * dtime
 
-			entity.object:add_velocity({
-				x = vx * flow_scale,
-				y = vy,
-				z = vz * flow_scale,
-			})
+				entity.object:add_velocity({
+					x = vx * flow_scale,
+					y = vy,
+					z = vz * flow_scale,
+				})
+			end
 		end
 
 		::continue_entity::
@@ -133,8 +156,7 @@ minetest.register_globalstep(function(dtime)
 	splash_timer = 0
 
 	local time = realistic_fluids.ocean_time or 0
-	local flood_rise = realistic_fluids.flood_rise or 0
-	local sea = settings.sea_level + flood_rise
+	local sea = realistic_fluids.sealevel or settings.sea_level or 1
 	local iters = settings.wave_iterations
 	local amp = settings.wave_height
 
