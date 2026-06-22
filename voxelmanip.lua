@@ -1,5 +1,5 @@
 -- voxelmanip.lua
--- Replace default mapgen water with realistic_fluids water nodes during generation
+-- Replace default mapgen water with realistic_rising_floods water nodes during generation
 
 local c_water_or_air = {}
 
@@ -9,12 +9,12 @@ minetest.register_on_mods_loaded(function()
 		[minetest.get_content_id("default:water_source")] = true,
 		[minetest.get_content_id("default:water_flowing")] = true,
 		[minetest.get_content_id("default:river_water_flowing")] = true,
-		[minetest.get_content_id("realistic_fluids:offshore_water")] = true,
-		[minetest.get_content_id("realistic_fluids:wave_offshorewater")] = true,
-		[minetest.get_content_id("realistic_fluids:seawater")] = true,
-		[minetest.get_content_id("realistic_fluids:wave")] = true,
-		[minetest.get_content_id("realistic_fluids:shorewater")] = true,
-		[minetest.get_content_id("realistic_fluids:wave_shorewater")] = true,
+		[minetest.get_content_id("realistic_rising_floods:offshore_water")] = true,
+		[minetest.get_content_id("realistic_rising_floods:wave_offshorewater")] = true,
+		[minetest.get_content_id("realistic_rising_floods:seawater")] = true,
+		[minetest.get_content_id("realistic_rising_floods:wave")] = true,
+		[minetest.get_content_id("realistic_rising_floods:shorewater")] = true,
+		[minetest.get_content_id("realistic_rising_floods:wave_shorewater")] = true,
 		[minetest.get_content_id("ignore")] = true
 	}
 end)
@@ -24,9 +24,9 @@ minetest.register_on_generated(function(minp, maxp, blockseed)
 	local data = vm:get_data()
 	local c_air = minetest.CONTENT_AIR
 	local c_water = minetest.get_content_id("mapgen_water_source")
-	local c_offshorewater = minetest.get_content_id("realistic_fluids:offshore_water")
-	local c_shorewater = minetest.get_content_id("realistic_fluids:shorewater")
-	local c_seawater = minetest.get_content_id("realistic_fluids:seawater")
+	local c_offshorewater = minetest.get_content_id("realistic_rising_floods:offshore_water")
+	local c_shorewater = minetest.get_content_id("realistic_rising_floods:shorewater")
+	local c_seawater = minetest.get_content_id("realistic_rising_floods:seawater")
 	local area = VoxelArea:new{
 		MinEdge = emin,
 		MaxEdge = emax

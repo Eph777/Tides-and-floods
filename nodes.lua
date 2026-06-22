@@ -1,7 +1,7 @@
 -- nodes.lua
--- Custom water node definitions for realistic_fluids tide and wave system
+-- Custom water node definitions for realistic_rising_floods tide and wave system
 
-local debug_colors = realistic_fluids.settings.ocean.debug_colors
+local debug_colors = realistic_rising_floods.settings.ocean.debug_colors
 
 -- Helper to colorize texture strings if debug mode is active
 local function get_texture(base, color)
@@ -12,17 +12,17 @@ local function get_texture(base, color)
 end
 
 -- Active waves propagation queue
-realistic_fluids.active_waves = {}
+realistic_rising_floods.active_waves = {}
 
-function realistic_fluids.queue_wave(pos)
+function realistic_rising_floods.queue_wave(pos)
 	local hash = minetest.hash_node_position(pos)
-	realistic_fluids.active_waves[hash] = {x = pos.x, y = pos.y, z = pos.z}
+	realistic_rising_floods.active_waves[hash] = {x = pos.x, y = pos.y, z = pos.z}
 end
 
 -- ============================================================
 -- SEAWATER
 -- ============================================================
-minetest.register_node("realistic_fluids:seawater", {
+minetest.register_node("realistic_rising_floods:seawater", {
 	description = "Seawater (Still)",
 	drawtype = "liquid",
 	waving = 3,
@@ -61,8 +61,8 @@ minetest.register_node("realistic_fluids:seawater", {
 	liquid_move_physics = true,
 	liquidtype = "source",
 	liquid_range = 3,
-	liquid_alternative_flowing = "realistic_fluids:wave",
-	liquid_alternative_source = "realistic_fluids:seawater",
+	liquid_alternative_flowing = "realistic_rising_floods:wave",
+	liquid_alternative_source = "realistic_rising_floods:seawater",
 	liquid_renewable = true,
 	floodable = false,
 	post_effect_color = {a = 103, r = 30, g = 30, b = 90},
@@ -72,7 +72,7 @@ minetest.register_node("realistic_fluids:seawater", {
 -- ============================================================
 -- WAVE
 -- ============================================================
-minetest.register_node("realistic_fluids:wave", {
+minetest.register_node("realistic_rising_floods:wave", {
 	description = "Ocean Wave (Flowing)",
 	drawtype = "flowingliquid",
 	waving = 3,
@@ -112,21 +112,21 @@ minetest.register_node("realistic_fluids:wave", {
 	liquid_viscosity = 1,
 	liquid_move_physics = true,
 	liquidtype = "flowing",
-	liquid_alternative_flowing = "realistic_fluids:wave",
-	liquid_alternative_source = "realistic_fluids:seawater",
+	liquid_alternative_flowing = "realistic_rising_floods:wave",
+	liquid_alternative_source = "realistic_rising_floods:seawater",
 	liquid_renewable = false,
 	floodable = true,
 	post_effect_color = {a = 103, r = 30, g = 60, b = 90},
 	groups = {water = 3, liquid = 3, not_in_creative_inventory = 0, cools_lava = 1},
 	on_construct = function(pos)
-		realistic_fluids.queue_wave(pos)
+		realistic_rising_floods.queue_wave(pos)
 	end,
 })
 
 -- ============================================================
 -- SHOREWATER
 -- ============================================================
-minetest.register_node("realistic_fluids:shorewater", {
+minetest.register_node("realistic_rising_floods:shorewater", {
 	description = "Shorewater (Tide Receder)",
 	drawtype = "liquid",
 	waving = 3,
@@ -165,8 +165,8 @@ minetest.register_node("realistic_fluids:shorewater", {
 	liquid_move_physics = true,
 	liquidtype = "source",
 	liquid_range = 0,
-	liquid_alternative_flowing = "realistic_fluids:wave_shorewater",
-	liquid_alternative_source = "realistic_fluids:shorewater",
+	liquid_alternative_flowing = "realistic_rising_floods:wave_shorewater",
+	liquid_alternative_source = "realistic_rising_floods:shorewater",
 	liquid_renewable = false,
 	floodable = false,
 	post_effect_color = {a = 103, r = 30, g = 30, b = 90},
@@ -176,7 +176,7 @@ minetest.register_node("realistic_fluids:shorewater", {
 -- ============================================================
 -- OFFSHORE_WATER
 -- ============================================================
-minetest.register_node("realistic_fluids:offshore_water", {
+minetest.register_node("realistic_rising_floods:offshore_water", {
 	description = "Offshore Water (Tide Riser)",
 	drawtype = "liquid",
 	waving = 3,
@@ -215,8 +215,8 @@ minetest.register_node("realistic_fluids:offshore_water", {
 	liquid_move_physics = true,
 	liquidtype = "source",
 	liquid_range = 0,
-	liquid_alternative_flowing = "realistic_fluids:wave_offshorewater",
-	liquid_alternative_source = "realistic_fluids:offshore_water",
+	liquid_alternative_flowing = "realistic_rising_floods:wave_offshorewater",
+	liquid_alternative_source = "realistic_rising_floods:offshore_water",
 	liquid_renewable = false,
 	floodable = false,
 	post_effect_color = {a = 103, r = 30, g = 30, b = 90},
@@ -226,7 +226,7 @@ minetest.register_node("realistic_fluids:offshore_water", {
 -- ============================================================
 -- Helper Wave Nodes (To allow correct source type mechanics)
 -- ============================================================
-minetest.register_node("realistic_fluids:wave_shorewater", {
+minetest.register_node("realistic_rising_floods:wave_shorewater", {
 	description = "Shore Wave helper",
 	drawtype = "flowingliquid",
 	waving = 3,
@@ -267,15 +267,15 @@ minetest.register_node("realistic_fluids:wave_shorewater", {
 	liquid_move_physics = true,
 	liquidtype = "flowing",
 	liquid_range = 0,
-	liquid_alternative_flowing = "realistic_fluids:wave_shorewater",
-	liquid_alternative_source = "realistic_fluids:shorewater",
+	liquid_alternative_flowing = "realistic_rising_floods:wave_shorewater",
+	liquid_alternative_source = "realistic_rising_floods:shorewater",
 	liquid_renewable = false,
 	floodable = true,
 	post_effect_color = {a = 103, r = 30, g = 60, b = 90},
 	groups = {water = 3, liquid = 3, not_in_creative_inventory = 1, cools_lava = 1},
 })
 
-minetest.register_node("realistic_fluids:wave_offshorewater", {
+minetest.register_node("realistic_rising_floods:wave_offshorewater", {
 	description = "Offshore Wave helper",
 	drawtype = "flowingliquid",
 	waving = 3,
@@ -316,8 +316,8 @@ minetest.register_node("realistic_fluids:wave_offshorewater", {
 	liquid_move_physics = true,
 	liquidtype = "flowing",
 	liquid_range = 0,
-	liquid_alternative_flowing = "realistic_fluids:wave_offshorewater",
-	liquid_alternative_source = "realistic_fluids:offshore_water",
+	liquid_alternative_flowing = "realistic_rising_floods:wave_offshorewater",
+	liquid_alternative_source = "realistic_rising_floods:offshore_water",
 	liquid_renewable = false,
 	floodable = true,
 	post_effect_color = {a = 103, r = 30, g = 60, b = 90},
@@ -327,19 +327,19 @@ minetest.register_node("realistic_fluids:wave_offshorewater", {
 -- ============================================================
 -- Backward compatibility aliases for tides namespace
 -- ============================================================
-minetest.register_alias("tides:seawater", "realistic_fluids:seawater")
-minetest.register_alias("tides:wave", "realistic_fluids:wave")
-minetest.register_alias("tides:shorewater", "realistic_fluids:shorewater")
-minetest.register_alias("tides:offshore_water", "realistic_fluids:offshore_water")
-minetest.register_alias("tides:wave_shorewater", "realistic_fluids:wave_shorewater")
-minetest.register_alias("tides:wave_offshorewater", "realistic_fluids:wave_offshorewater")
+minetest.register_alias("tides:seawater", "realistic_rising_floods:seawater")
+minetest.register_alias("tides:wave", "realistic_rising_floods:wave")
+minetest.register_alias("tides:shorewater", "realistic_rising_floods:shorewater")
+minetest.register_alias("tides:offshore_water", "realistic_rising_floods:offshore_water")
+minetest.register_alias("tides:wave_shorewater", "realistic_rising_floods:wave_shorewater")
+minetest.register_alias("tides:wave_offshorewater", "realistic_rising_floods:wave_offshorewater")
 
 -- ============================================================
 -- Flooding behavior checker
 -- ============================================================
-realistic_fluids.can_it_flood = function(node)
+realistic_rising_floods.can_it_flood = function(node)
 	-- To avoid feedback loops
-	if node == "realistic_fluids:wave" or node == "tides:wave" then
+	if node == "realistic_rising_floods:wave" or node == "tides:wave" then
 		return false
 	end
 

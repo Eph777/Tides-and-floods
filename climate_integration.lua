@@ -1,6 +1,6 @@
 -- climate_integration.lua
 -- Triggers Climate API / Regional Weather effects when a flood is active
--- in the realistic_fluids mod, creating an immersive storm atmosphere.
+-- in the realistic_rising_floods mod, creating an immersive storm atmosphere.
 --
 -- Requires: climate_api and regional_weather mods installed and enabled.
 --
@@ -46,18 +46,18 @@ end
 --   - Tide mode is "rising" and sea level is above the base level, OR
 --   - Tide mode is "periodic" and current sea level > the periodic low mark + 1
 local function is_flood_active()
-	if not realistic_fluids or not realistic_fluids.tide_settings then
+	if not realistic_rising_floods or not realistic_rising_floods.tide_settings then
 		return false
 	end
-	local mode = realistic_fluids.tide_settings.mode
-	local sl   = realistic_fluids.sealevel or 1
-	local base = realistic_fluids.settings.ocean.sea_level or 1
+	local mode = realistic_rising_floods.tide_settings.mode
+	local sl   = realistic_rising_floods.sealevel or 1
+	local base = realistic_rising_floods.settings.ocean.sea_level or 1
 
 	if mode == "rising" then
 		-- Flood once sea has risen at least 1 block above base
 		return sl > base
 	elseif mode == "periodic" then
-		local low  = realistic_fluids.tide_settings.tide_low or 1
+		local low  = realistic_rising_floods.tide_settings.tide_low or 1
 		-- Flood during the upper half of the tidal cycle
 		return sl > low + 1
 	end
@@ -115,7 +115,7 @@ local function activate_flood_climate()
 	if climate_active then return end
 	climate_active = true
 
-	minetest.log("action", "[realistic_fluids] Flood detected — activating storm climate")
+	minetest.log("action", "[realistic_rising_floods] Flood detected — activating storm climate")
 
 	-- Force flood-appropriate weather presets ON
 	for _, preset in ipairs(FLOOD_PRESETS) do
@@ -142,7 +142,7 @@ local function deactivate_flood_climate()
 	if not climate_active then return end
 	climate_active = false
 
-	minetest.log("action", "[realistic_fluids] Flood subsiding — restoring normal climate")
+	minetest.log("action", "[realistic_rising_floods] Flood subsiding — restoring normal climate")
 
 	-- Reset all presets to auto
 	for _, preset in ipairs(FLOOD_PRESETS) do
@@ -215,5 +215,5 @@ minetest.register_chatcommand("floodclimate", {
 	end
 })
 
-minetest.log("action", "[realistic_fluids] Climate integration loaded (climate_api detected: "
+minetest.log("action", "[realistic_rising_floods] Climate integration loaded (climate_api detected: "
 	.. tostring(climate_available()) .. ")")

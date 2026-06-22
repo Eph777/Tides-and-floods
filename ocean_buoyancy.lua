@@ -1,8 +1,8 @@
 -- ocean_buoyancy.lua
 -- Entity interaction with Gerstner ocean: bobbing, floating, splash particles
 
-local settings = realistic_fluids.settings.ocean
-local OceanWaves = realistic_fluids.ocean_waves
+local settings = realistic_rising_floods.settings.ocean
+local OceanWaves = realistic_rising_floods.ocean_waves
 
 local math_max = math.max
 local math_min = math.min
@@ -35,8 +35,8 @@ end
 minetest.register_globalstep(function(dtime)
 	if not settings.enabled then return end
 
-	local time = realistic_fluids.ocean_time or 0
-	local sea = realistic_fluids.sealevel or settings.sea_level or 1
+	local time = realistic_rising_floods.ocean_time or 0
+	local sea = realistic_rising_floods.sealevel or settings.sea_level or 1
 	local iters = settings.wave_iterations
 	local amp = settings.wave_height
 	local buoy_force = settings.buoyancy_force
@@ -155,8 +155,8 @@ minetest.register_globalstep(function(dtime)
 	if splash_timer < 0.2 then return end
 	splash_timer = 0
 
-	local time = realistic_fluids.ocean_time or 0
-	local sea = realistic_fluids.sealevel or settings.sea_level or 1
+	local time = realistic_rising_floods.ocean_time or 0
+	local sea = realistic_rising_floods.sealevel or settings.sea_level or 1
 	local iters = settings.wave_iterations
 	local amp = settings.wave_height
 
@@ -176,4 +176,4 @@ minetest.register_globalstep(function(dtime)
 	end
 end)
 
-minetest.log("action", "[realistic_fluids] Ocean buoyancy loaded.")
+minetest.log("action", "[realistic_rising_floods] Ocean buoyancy loaded.")
