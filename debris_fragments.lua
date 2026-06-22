@@ -1,7 +1,7 @@
 -- debris_fragments.lua
 -- Falling block debris entity with physics simulation
 
-local settings = realistic_fluids.settings.debris
+local settings = realistic_rising_floods.settings.debris
 
 local math_random = math.random
 local math_floor = math.floor
@@ -11,7 +11,7 @@ local math_abs = math.abs
 -- Debris Fragment Entity
 -- ============================================================
 
-minetest.register_entity("realistic_fluids:debris", {
+minetest.register_entity("realistic_rising_floods:debris", {
 	initial_properties = {
 		visual = "cube",
 		visual_size = {x = 0.25, y = 0.25, z = 0.25},
@@ -183,7 +183,7 @@ minetest.register_entity("realistic_fluids:debris", {
 -- Utility: spawn debris from a broken block
 -- ============================================================
 
-function realistic_fluids.spawn_debris(pos, node_name, burst_velocity)
+function realistic_rising_floods.spawn_debris(pos, node_name, burst_velocity)
 	if not settings.enabled then return end
 
 	local def = minetest.registered_nodes[node_name]
@@ -254,7 +254,7 @@ function realistic_fluids.spawn_debris(pos, node_name, burst_velocity)
 		}
 
 		local staticdata = texture .. "|" .. tostring(scale)
-		local obj = minetest.add_entity(spawn_pos, "realistic_fluids:debris", staticdata)
+		local obj = minetest.add_entity(spawn_pos, "realistic_rising_floods:debris", staticdata)
 
 		if obj then
 			local ent = obj:get_luaentity()
@@ -273,4 +273,4 @@ function realistic_fluids.spawn_debris(pos, node_name, burst_velocity)
 	end
 end
 
-minetest.log("action", "[realistic_fluids] Debris fragments loaded.")
+minetest.log("action", "[realistic_rising_floods] Debris fragments loaded.")

@@ -1,7 +1,7 @@
 -- debris_hooks.lua
 -- Hooks into block breaking events to spawn debris fragments
 
-local settings = realistic_fluids.settings.debris
+local settings = realistic_rising_floods.settings.debris
 
 -- ============================================================
 -- Block Dig Hook: spawn fragments when any block is broken
@@ -22,7 +22,7 @@ minetest.register_on_dignode(function(pos, oldnode, digger)
 	if not def.walkable and not (def.groups and def.groups.cracky) then return end
 
 	-- Spawn the debris!
-	realistic_fluids.spawn_debris(pos, name)
+	realistic_rising_floods.spawn_debris(pos, name)
 
 	-- Material-appropriate break sound
 	local groups = def.groups or {}
@@ -66,4 +66,4 @@ if settings.explosions then
 	-- Explosion support is provided through ABM on TNT if available.
 end
 
-minetest.log("action", "[realistic_fluids] Debris hooks loaded.")
+minetest.log("action", "[realistic_rising_floods] Debris hooks loaded.")

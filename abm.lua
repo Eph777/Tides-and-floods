@@ -11,10 +11,10 @@ local water_or_air = {
 	["default:water_source"] = true,
 	["default:water_flowing"] = true,
 	["default:river_water_flowing"] = true,
-	["realistic_fluids:seawater"] = true,
-	["realistic_fluids:shorewater"] = true,
-	["realistic_fluids:offshore_water"] = true,
-	["realistic_fluids:wave"] = true,
+	["realistic_rising_floods:seawater"] = true,
+	["realistic_rising_floods:shorewater"] = true,
+	["realistic_rising_floods:offshore_water"] = true,
+	["realistic_rising_floods:wave"] = true,
 	["tides:seawater"] = true,
 	["tides:shorewater"] = true,
 	["tides:offshore_water"] = true,
@@ -26,10 +26,10 @@ local water_and_friends = {
 	["default:water_source"] = true,
 	["default:water_flowing"] = true,
 	["default:river_water_flowing"] = true,
-	["realistic_fluids:seawater"] = true,
-	["realistic_fluids:shorewater"] = true,
-	["realistic_fluids:offshore_water"] = true,
-	["realistic_fluids:wave"] = true,
+	["realistic_rising_floods:seawater"] = true,
+	["realistic_rising_floods:shorewater"] = true,
+	["realistic_rising_floods:offshore_water"] = true,
+	["realistic_rising_floods:wave"] = true,
 	["tides:seawater"] = true,
 	["tides:shorewater"] = true,
 	["tides:offshore_water"] = true,
@@ -41,13 +41,13 @@ local water_and_friends = {
 -- SHOREWATER ABM
 -- ============================================================
 minetest.register_abm({
-	name = "realistic_fluids:shorewater_abm",
-	nodenames = {"realistic_fluids:shorewater"},
+	name = "realistic_rising_floods:shorewater_abm",
+	nodenames = {"realistic_rising_floods:shorewater"},
 	interval = abm_long_delay,
 	chance = 1,
 	catch_up = false,
 	action = function(pos)
-		local sealevel = realistic_fluids.sealevel or 1
+		local sealevel = realistic_rising_floods.sealevel or 1
 		local cardinal_pos = {
 			{x=pos.x+1, y=pos.y, z=pos.z},
 			{x=pos.x-1, y=pos.y, z=pos.z},
@@ -64,13 +64,13 @@ minetest.register_abm({
 
 		-- trigger receding tide
 		if pos.y > sealevel then
-			minetest.set_node(pos, {name = "realistic_fluids:wave"})
+			minetest.set_node(pos, {name = "realistic_rising_floods:wave"})
 		-- trigger rising tide
 		elseif pos.y <= sealevel then
 			local count_water = 0
 			for i = 1, 4 do
-				if realistic_fluids.can_it_flood(cardinal_node[i]) then
-					minetest.set_node(pos, {name = "realistic_fluids:wave"})
+				if realistic_rising_floods.can_it_flood(cardinal_node[i]) then
+					minetest.set_node(pos, {name = "realistic_rising_floods:wave"})
 					break
 				end
 				if water_and_friends[cardinal_node[i]] then
@@ -78,7 +78,7 @@ minetest.register_abm({
 				end
 			end
 			if count_water == 4 then
-				minetest.set_node(pos, {name = "realistic_fluids:seawater"})
+				minetest.set_node(pos, {name = "realistic_rising_floods:seawater"})
 			end
 		end
 	end
@@ -88,13 +88,13 @@ minetest.register_abm({
 -- OFFSHORE_WATER ABM
 -- ============================================================
 minetest.register_abm({
-	name = "realistic_fluids:offshore_water_abm",
-	nodenames = {"realistic_fluids:offshore_water"},
+	name = "realistic_rising_floods:offshore_water_abm",
+	nodenames = {"realistic_rising_floods:offshore_water"},
 	interval = abm_long_delay,
 	chance = 1,
 	catch_up = false,
 	action = function(pos)
-		local sealevel = realistic_fluids.sealevel or 1
+		local sealevel = realistic_rising_floods.sealevel or 1
 		local cardinal_pos = {
 			{x=pos.x+1, y=pos.y, z=pos.z},
 			{x=pos.x-1, y=pos.y, z=pos.z},
@@ -111,10 +111,10 @@ minetest.register_abm({
 
 		-- if below sealevel then rise
 		if pos.y < sealevel then
-			minetest.set_node(pos, {name = "realistic_fluids:seawater"})
+			minetest.set_node(pos, {name = "realistic_rising_floods:seawater"})
 			for i = 1, 4 do
 				if minetest.compare_block_status(cardinal_pos[i], "active") ~= true then
-					minetest.set_node({x=pos.x, y=pos.y+1, z=pos.z}, {name = "realistic_fluids:wave"})
+					minetest.set_node({x=pos.x, y=pos.y+1, z=pos.z}, {name = "realistic_rising_floods:wave"})
 					break
 				end
 			end
@@ -123,8 +123,8 @@ minetest.register_abm({
 		-- if at sealevel then spread
 		if pos.y == sealevel then
 			for i = 1, 4 do
-				if realistic_fluids.can_it_flood(cardinal_node[i]) then
-					minetest.set_node(cardinal_pos[i], {name = "realistic_fluids:wave"})
+				if realistic_rising_floods.can_it_flood(cardinal_node[i]) then
+					minetest.set_node(cardinal_pos[i], {name = "realistic_rising_floods:wave"})
 				end
 			end
 		end
@@ -142,14 +142,14 @@ minetest.register_globalstep(function(dtime)
 	if wave_timer < abm_short_delay then return end
 	wave_timer = 0
 
-	local current_waves = realistic_fluids.active_waves or {}
-	realistic_fluids.active_waves = {}
+	local current_waves = realistic_rising_floods.active_waves or {}
+	realistic_rising_floods.active_waves = {}
 
-	local sealevel = realistic_fluids.sealevel or 1
+	local sealevel = realistic_rising_floods.sealevel or 1
 
 	for hash, pos in pairs(current_waves) do
 		local node = get_node(pos)
-		if node.name == "realistic_fluids:wave" then
+		if node.name == "realistic_rising_floods:wave" then
 			local cardinal_pos = {
 				{x=pos.x+1, y=pos.y, z=pos.z},
 				{x=pos.x-1, y=pos.y, z=pos.z},
@@ -187,26 +187,26 @@ minetest.register_globalstep(function(dtime)
 				
 				-- Spread wave to neighbors to recede
 				for i = 1, 4 do
-					if water_and_friends[cardinal_node[i]] and cardinal_node[i] ~= "realistic_fluids:wave" then
-						minetest.set_node(cardinal_pos[i], {name = "realistic_fluids:wave"})
+					if water_and_friends[cardinal_node[i]] and cardinal_node[i] ~= "realistic_rising_floods:wave" then
+						minetest.set_node(cardinal_pos[i], {name = "realistic_rising_floods:wave"})
 					end
 				end
 
 				-- CHANGE NODES BELOW
-				if get_node({x=pos.x, y=pos.y-1, z=pos.z}).name == "realistic_fluids:seawater" then
+				if get_node({x=pos.x, y=pos.y-1, z=pos.z}).name == "realistic_rising_floods:seawater" then
 					if (pos.x % 16 == 0 or pos.x % 16 == 15) and (pos.z % 16 == 0 or pos.z % 16 == 15) then
-						minetest.set_node({x=pos.x, y=pos.y-1, z=pos.z}, {name = "realistic_fluids:offshore_water"})
+						minetest.set_node({x=pos.x, y=pos.y-1, z=pos.z}, {name = "realistic_rising_floods:offshore_water"})
 					else
 						local shore_below = false
 						for i = 1, 4 do
 							if water_or_air[cardinal_down_node[i]] == nil then
-								minetest.set_node({x=pos.x, y=pos.y-1, z=pos.z}, {name = "realistic_fluids:shorewater"})
+								minetest.set_node({x=pos.x, y=pos.y-1, z=pos.z}, {name = "realistic_rising_floods:shorewater"})
 								shore_below = true
 								break
 							end
 						end
 						if not shore_below then
-							minetest.set_node({x=pos.x, y=pos.y-1, z=pos.z}, {name = "realistic_fluids:seawater"})
+							minetest.set_node({x=pos.x, y=pos.y-1, z=pos.z}, {name = "realistic_rising_floods:seawater"})
 						end
 					end
 				end
@@ -215,30 +215,30 @@ minetest.register_globalstep(function(dtime)
 			elseif pos.y <= sealevel then
 				-- look for floodable neighbors
 				for i = 1, 4 do
-					if realistic_fluids.can_it_flood(cardinal_node[i]) then
+					if realistic_rising_floods.can_it_flood(cardinal_node[i]) then
 						-- floatable logic
 						local float = minetest.get_item_group(cardinal_node[i], "float")
 						if float >= 1 then
 							local cardinal_pos_up = vector.add(cardinal_pos[i], vector.new(0, 1, 0))
 							local cardinal_node_up = get_node(cardinal_pos_up).name
-							if realistic_fluids.can_it_flood(cardinal_node_up) then
+							if realistic_rising_floods.can_it_flood(cardinal_node_up) then
 								minetest.set_node(cardinal_pos[i], {name = tostring(cardinal_node_up)})
 								minetest.set_node(cardinal_pos_up, {name = cardinal_node[i]})
 							end
 						end
 
-						minetest.set_node(cardinal_pos[i], {name = "realistic_fluids:wave"})
+						minetest.set_node(cardinal_pos[i], {name = "realistic_rising_floods:wave"})
 					end
 				end
 
 				-- Determine replacement for this current node
 				if (edge_x == 0 or edge_x == 15) and (edge_z == 0 or edge_z == 15) then
-					minetest.set_node(pos, {name = "realistic_fluids:offshore_water"})
+					minetest.set_node(pos, {name = "realistic_rising_floods:offshore_water"})
 				else
 					local shore = false
 					for j = 1, 4 do
 						if water_or_air[cardinal_node[j]] == nil then
-							minetest.set_node(pos, {name = "realistic_fluids:shorewater"})
+							minetest.set_node(pos, {name = "realistic_rising_floods:shorewater"})
 							shore = true
 
 							-- Splash effects
@@ -270,14 +270,14 @@ minetest.register_globalstep(function(dtime)
 						end
 					end
 					if not shore then
-						minetest.set_node(pos, {name = "realistic_fluids:seawater"})
+						minetest.set_node(pos, {name = "realistic_rising_floods:seawater"})
 					end
 				end
 
 				-- Clean below the surface
 				local node_below = get_node({x=pos.x, y=pos.y-1, z=pos.z}).name
-				if node_below ~= "realistic_fluids:seawater" and water_and_friends[node_below] then
-					minetest.set_node({x=pos.x, y=pos.y-1, z=pos.z}, {name = "realistic_fluids:seawater"})
+				if node_below ~= "realistic_rising_floods:seawater" and water_and_friends[node_below] then
+					minetest.set_node({x=pos.x, y=pos.y-1, z=pos.z}, {name = "realistic_rising_floods:seawater"})
 				end
 
 				-- if surrounded by seawater, become seawater
@@ -289,9 +289,9 @@ minetest.register_globalstep(function(dtime)
 				end
 				if seawater == 4 then
 					if (edge_x == 0 or edge_x == 15) and (edge_z == 0 or edge_z == 15) then
-						minetest.set_node(pos, {name = "realistic_fluids:offshore_water"})
+						minetest.set_node(pos, {name = "realistic_rising_floods:offshore_water"})
 					else
-						minetest.set_node(pos, {name = "realistic_fluids:seawater"})
+						minetest.set_node(pos, {name = "realistic_rising_floods:seawater"})
 					end
 				end
 			end
