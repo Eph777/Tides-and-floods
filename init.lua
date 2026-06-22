@@ -2,13 +2,13 @@
 -- Physics Mod for Luanti
 -- Adapted from Minecraft Physics Mod mechanics
 
-local modpath = minetest.get_modpath("realistic_fluids")
+local modpath = minetest.get_modpath("realistic_rising_floods")
 
 -- Phase 0: Settings (creates the realistic_fluids global table)
 dofile(modpath .. "/settings.lua")
 
 if realistic_fluids.settings.disabled then
-	minetest.log("action", "[realistic_fluids] Mod disabled via settings.")
+	minetest.log("action", "[realistic_rising_floods] Mod disabled via settings.")
 	return
 end
 
@@ -35,4 +35,4 @@ if realistic_fluids.settings.debris.enabled then
 	dofile(modpath .. "/debris_hooks.lua")      -- Break/blast event hooks
 end
 
-minetest.log("action", "[realistic_fluids] Physics Mod loaded successfully.")
+minetest.log("action", "[realistic_rising_floods] Physics Mod loaded successfully.")
