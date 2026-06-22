@@ -8,6 +8,7 @@ local modpath = minetest.get_modpath("realistic_rising_floods")
 dofile(modpath .. "/settings.lua")
 
 if realistic_rising_floods.settings.disabled then
+
 	minetest.log("action", "[realistic_rising_floods] Mod disabled via settings.")
 	return
 end
